@@ -1,0 +1,4 @@
+Processes 2
+Files 2
+Deadlock detected
+Terminate 0

@@ -1,0 +1,4 @@
+Processes 7
+Files 7
+Deadlock detected
+Terminate 0 3
