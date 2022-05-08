@@ -1,4 +1,0 @@
-Processes 9
-Files 10
-Deadlock detected
-Terminate 1

@@ -1,3 +1,0 @@
-Processes 10
-Files 14
-Execution time 5
