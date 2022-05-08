@@ -1,0 +1,27 @@
+The webroot used in testing can be found under www/.
+
+To test, you should run the server in the background and then make requests using a client of your
+choice. Good things to try include web browsers, cURL, and wget. You should do additional testing
+beyond what is described in the list below.
+
+For example, you might use the following command to test with cURL:
+ curl --http1.0 -v http://127.0.0.1:PORT/PATH
+
+You can test IPv6 like so:
+ curl --http1.0 -v http://[::1]:PORT/PATH
+
+The visible tests check the following:
+
+Task 1 (Valid responses)
+* get_index: /index.html returns 200.
+* get_image: /image.jpg returns 200.
+* get_missing: /missing_file.html returns 404.
+* get_makefile: /Makefile returns 404.
+
+Task 2 (MIME types)
+* mime_index: /index.html returns text/html.
+* mime_unknown: /a... returns application/octet-stream.
+* mime_image_subdir: /assets/image.jpg returns image/jpeg.
+* mime_escape: ../../etc/passwd returns 404.
+
+Task 3 simply repeats previous tests on IPv6.
