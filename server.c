@@ -9,8 +9,7 @@
 #define REQUEST_GET "GET"
 
 // file constants
-#define TYPE_DELIM "."
-
+#define TYPE_DELIM ','
 // size constants
 #define METHOD_SIZE 3
 
@@ -35,6 +34,9 @@ struct request_t {
   int validRequest; // request is finished and can be used
 };
 
+int validPath(char* filePath);
+char* getMIMEType(char* filePath);
+
 
 void initialiseSocket() {
   // code to setup socket
@@ -43,7 +45,6 @@ void initialiseSocket() {
 
 void newRequest() {
   // code to handle a new request - will be assigned to threads if I get that far
-  int a = 2;
 }
 
 
@@ -51,19 +52,19 @@ request_t ingestRequest(char* input) {
   // take raw cmndline input and convert to a request type for easy access
   // should do as much error handling in here as possible
   request_t potentialRequest;
-  char[METHOD_SIZE] method;
+  char method[METHOD_SIZE];
   char* newToken;
 
   int tokenCount = 0;
 
-  while ((newToken = strtok(input, REQUEST_DELIM) != NULL) {
+  while ((newToken = strtok(input, REQUEST_DELIM)) != NULL) {
     int tokenLength = strlen(newToken);
 
     if (tokenCount == 0) {
       // trying to read request method
       if ((tokenLength == METHOD_SIZE) && (strcmp(newToken, REQUEST_GET) == 0)) {
         // matches size of a get request
-        method = newToken;
+        strcpy(method, newToken);
 
       } else {
         // too big/small
@@ -99,11 +100,11 @@ request_t ingestRequest(char* input) {
 
   }
 
+  return potentialRequest;
+}
 
-};
 
-
-void executeRequest(reuqest_t request) {
+void executeRequest(request_t request) {
   // given a valid request, respond and then send file
 }
 
@@ -122,11 +123,12 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
+
 char* getMIMEType(char* filePath) {
   // return the MIME type given the filepath
   char* fileType;
 
-  char* fullStop = strrchr(filePath, TYPE_DELIM)
+  char* fullStop = strrchr(filePath, TYPE_DELIM);
   // get pointer to full stop delim in path
   if (fullStop == NULL || strlen(fullStop+1) <= 0) {
     // malformed input: no delim or filetype does not exist
@@ -138,32 +140,20 @@ char* getMIMEType(char* filePath) {
 
   // check filetype exists
 
-  // ugly switch statement to return MIME type
-  switch (fullStop) {
-    case "html":
+  // ugly if statement to return MIME type
+  if (strcmp("html", fullStop) == 0) {
     fileType = MIME_HTML;
-    break;
-
-    case "jpeg":
+  } else if (strcmp("jpg", fullStop) == 0) {
     fileType = MIME_JPEG;
-    break;
-
-    case "css":
+  } else if (strcmp("css", fullStop) == 0) {
     fileType = MIME_CSS;
-
-    case "js":
+  } else if (strcmp("js", fullStop) == 0) {
     fileType = MIME_JAVASCRIPT;
-    break;
-
-    default:
+  } else {
     fileType = MIME_OTHER;
-    break;
-
-
   }
 
   return fileType;
-
 }
 
 
