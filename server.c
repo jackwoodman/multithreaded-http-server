@@ -8,8 +8,19 @@
 #define REQUEST_DELIM " "
 #define REQUEST_GET "GET"
 
+// file constants
+#define TYPE_DELIM "."
+
 // size constants
 #define METHOD_SIZE 3
+
+
+// file types (MIME)
+#define MIME_HTML "text/html"
+#define MIME_JPEG "image/jpeg"
+#define MIME_CSS "text/css"
+#define MIME_JAVASCRIPT "text/javascript"
+#define MIME_OTHER "application/octet-stream"
 
 
 
@@ -18,8 +29,9 @@ typedef struct request_t request_t;
 struct request_t {
   int statusCode;
   int handlerID;
-  char[] rootDirectory;
-  char[] filePath;
+  char* fileType;
+  char* rootDirectory;
+  char* filePath;
   int validRequest; // request is finished and can be used
 };
 
@@ -69,7 +81,9 @@ request_t ingestRequest(char* input) {
         strcpy(potentialRequest.filePath, newToken);
 
         // get file type, and store
-
+        char* MIMEType = getMIMEType(newToken);
+        potentialRequest.fileType = malloc(sizeof(char)*strlen(MIMEType));
+        strcpy(potentialRequest.fileType, MIMEType);
 
       } else {
         // too big/small
@@ -79,9 +93,6 @@ request_t ingestRequest(char* input) {
     } else if (tokenCount == 2) {
 
     }
-
-
-
 
 
     tokenCount++;
@@ -109,6 +120,50 @@ int main(int argc, char *argv[]) {
 
 
   return 0;
+}
+
+char* getMIMEType(char* filePath) {
+  // return the MIME type given the filepath
+  char* fileType;
+
+  char* fullStop = strrchr(filePath, TYPE_DELIM)
+  // get pointer to full stop delim in path
+  if (fullStop == NULL || strlen(fullStop+1) <= 0) {
+    // malformed input: no delim or filetype does not exist
+    return NULL;
+  }
+
+  // point now to the filetype itself
+  fullStop = fullStop + 1;
+
+  // check filetype exists
+
+  // ugly switch statement to return MIME type
+  switch (fullStop) {
+    case "html":
+    fileType = MIME_HTML;
+    break;
+
+    case "jpeg":
+    fileType = MIME_JPEG;
+    break;
+
+    case "css":
+    fileType = MIME_CSS;
+
+    case "js":
+    fileType = MIME_JAVASCRIPT;
+    break;
+
+    default:
+    fileType = MIME_OTHER;
+    break;
+
+
+  }
+
+  return fileType;
+
 }
 
 
