@@ -16,9 +16,9 @@
 #define PARENT_COMMAND ".."
 
 // size constants
-#define ARGUMENT_COUNT 3
+#define ARGUMENT_COUNT 4
 #define METHOD_SIZE 3
-#define SEND_BUFFER 2048
+#define SEND_BUFFER 1024
 #define ALLOWED_CONNECTIONS 10
 
 
@@ -56,31 +56,43 @@ void fileSend(char* filePath, int newfd);
 int initialiseSocket(int protocolNumber, char* portNumber) {
   // code to setup socket - adapting from code provided in lectures
   int listenfd, connfd, re, s;
-  struct addrinfo hints, *res;
+  struct addrinfo hints, *res, *rp;
 
+  printf("- Initialising Socket\n");
 
   // create socket
-  memset(&hints, 0, sizeof(hints));
+  memset(&hints, 0, sizeof hints);
+
 
   // assign based on prot number
+  /*
   if (protocolNumber == 4) {
     hints.ai_family = AF_INET;
   } else if (protocolNumber == 6) {
     hints.ai_family = AF_INET6;
-  }
+  }*/
 
+  hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_flags = AI_PASSIVE;
-  s = getaddrinfo(NULL, portNumber, &hints, &res);
+  s = getaddrinfo("127.0.0.1", portNumber, &hints, &res);
 
   // create socket and allow reuse
   re = 1;
   listenfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
   setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &re, sizeof(re));
 
+  // override code required in spec
+  int enable = 1;
+  if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
+    perror("setsockopt");
+    exit(1);
+  }
+
   // socket binding
   bind(listenfd, res->ai_addr, res->ai_addrlen);
   listen(listenfd, ALLOWED_CONNECTIONS);
+  printf("- Listening on socket at file description %d\n", listenfd);
 
 
   return listenfd;
@@ -93,15 +105,17 @@ cmd_args_t ingestCommandLine(char *argv[]) {
   cmd_args_t newConfig;
 
   // (IPv)4 or (IPv)6
-  newConfig.protocolNumber = atoi(argv[0]);
+  newConfig.protocolNumber = atoi(argv[1]);
 
   // port number (as a string)
-  newConfig.portNumber = malloc(sizeof(argv[1]));
-  strcpy(newConfig.portNumber, argv[1]);
+  newConfig.portNumber = malloc(strlen(argv[2]) + 1);
+  strcpy(newConfig.portNumber, argv[2]);
 
   // read path to root
-  newConfig.rootPath = malloc(sizeof(argv[2]));
-  strcpy(newConfig.rootPath, argv[2]);
+  newConfig.rootPath = malloc(strlen(argv[3]) + 1);
+  strcpy(newConfig.rootPath, argv[3]);
+
+  printf("- (IPv%d, Port %s, Path %s)\n", newConfig.protocolNumber, newConfig.portNumber, newConfig.rootPath);
 
   return newConfig;
 }
@@ -120,6 +134,7 @@ char* combinePaths(char* root, char* file) {
 request_t ingestRequest(char* input, cmd_args_t config) {
   // take raw tcp input and convert to a request type for easy access
   // should do as much error handling in here as possible
+  printf("- Ingesting request\n");
   request_t potentialRequest;
   char method[METHOD_SIZE];
   char* newToken;
@@ -175,16 +190,15 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
   }
 
-
   return potentialRequest;
 }
-
 
 
 
 void executeRequest(request_t request, int newfd) {
   // given a valid request, respond and then send file
   int written;
+  printf("- Executing request\n");
   // respond to request
   if (request.statusCode == STATUS_SUCCESS) {
     // send confirmation
@@ -225,6 +239,7 @@ void fileSend(char* filePath, int newfd) {
     // try to write (atm assuming write will be successful, probs unsafe @)
     writeStatus = write(newfd, fileBuffer, fileSize);
   }
+  printf("- File sent successfully\n");
 
   // close file
   fclose(targetFile);
@@ -258,19 +273,27 @@ int main(int argc, char *argv[]) {
   char buffer[SEND_BUFFER];
   int connfd;
 
+  printf("- Server Startup: entered main\n");
+
   // read cmdline input to get addrinfo
   if (argc != ARGUMENT_COUNT) {
     // not enough / too many arguments
     return 0;
   }
 
+
   // we have enough arguments, ingest them to config struct
+  printf("- Reading command line arguments (%d found)\n", argc);
   cmd_args_t config = ingestCommandLine(argv);
+  printf("- Config succesfully ingested\n");
 
   // create socket and start listening on it
   int listenfd = initialiseSocket(config.protocolNumber, config.portNumber);
 
+  printf("- Socket created successfully\n");
+
   // socket is good to go, begin responding to requests
+  printf("- Accepting connections...\n");
   while (1) {
 
     // accept new connection
@@ -279,16 +302,13 @@ int main(int argc, char *argv[]) {
 
     connfd = accept(listenfd, (struct sockaddr*)&client_addr, &client_addr_size);
 
+    printf("\n - new connection found: servicing request\n");
     // pass addr to thread to deal with
     serviceRequest(connfd, buffer, config);
+    printf(" - request finished\n");
 
     // finished servicing new request
-
-
-
   }
-
-
 
   return 0;
 }
