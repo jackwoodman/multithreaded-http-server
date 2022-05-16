@@ -184,12 +184,12 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
 void executeRequest(request_t request, int newfd) {
   // given a valid request, respond and then send file
-
+  int written;
   // respond to request
   if (request.statusCode == STATUS_SUCCESS) {
     // send confirmation
     char httpConfirm[] = "HTTP/1.1 200 OK\n";
-    int written = write(newfd, http_confirm, strlen(http_confirm));
+    written = write(newfd, httpConfirm, strlen(httpConfirm));
 
     // send file header
     char mimeConfirm[] = "Content-Type: ";
@@ -204,7 +204,7 @@ void executeRequest(request_t request, int newfd) {
   } else if (request.statusCode == STATUS_CLIENT_ERROR) {
     // send failure message
     char httpFailure[] = "HTTP/1.1 404";
-    int written = write(newfd, httpFailure, strlen(httpFailure));
+    written = write(newfd, httpFailure, strlen(httpFailure));
   }
 
   // finished all sending
