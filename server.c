@@ -9,7 +9,8 @@
 #define TEST_ROOT "/www"
 #define REQUEST_DELIM " "
 #define REQUEST_GET "GET"
-
+#define CRLF "\r\n"
+#define DBL_CRLF "\r\n\r\n"
 
 // file constants
 #define TYPE_DELIM ','
@@ -18,7 +19,7 @@
 // size constants
 #define ARGUMENT_COUNT 4
 #define METHOD_SIZE 3
-#define SEND_BUFFER 1024
+#define SEND_BUFFER 2048
 #define ALLOWED_CONNECTIONS 10
 
 
@@ -123,9 +124,10 @@ cmd_args_t ingestCommandLine(char *argv[]) {
 
 char* combinePaths(char* root, char* file) {
   // add file path to end of root location
-  char* totalPath = malloc(sizeof(root) + sizeof(file));
+  char* totalPath = malloc(strlen(root) + strlen(file)+1);
   strcat(totalPath, root);
   strcat(totalPath, file);
+  printf(totalPath);
 
   return totalPath;
 
@@ -137,11 +139,11 @@ request_t ingestRequest(char* input, cmd_args_t config) {
   printf("- Ingesting request\n");
   request_t potentialRequest;
   char method[METHOD_SIZE];
-  char* newToken;
+  char* newToken = strtok(input, REQUEST_DELIM);
 
   int tokenCount = 0;
 
-  while ((newToken = strtok(input, REQUEST_DELIM)) != NULL) {
+  while (newToken != NULL) {
     int tokenLength = strlen(newToken);
 
     if (tokenCount == 0) {
@@ -177,16 +179,18 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
       } else {
         // file did not exist, return a 404
+        printf("- Invalid request (404)\n");
         potentialRequest.validRequest = 0;
         potentialRequest.statusCode = STATUS_CLIENT_ERROR;
         return potentialRequest;
       }
 
     } else if (tokenCount == 2) {
-      // @ shouldn't need this, but leaving incase we do
+      // @ shouldn't need this, but leaving incase we do (e.g. HTTP type)
     }
 
     tokenCount++;
+    newToken = strtok(NULL, REQUEST_DELIM);
 
   }
 
@@ -207,7 +211,7 @@ void executeRequest(request_t request, int newfd) {
 
     // send file header
     char mimeConfirm[] = "Content-Type: ";
-    char* mimeHeader = malloc(sizeof(mimeConfirm) + sizeof(request.fileType));
+    char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType));
     strcat(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
     int written = write(newfd, mimeHeader, strlen(mimeHeader));
@@ -235,7 +239,7 @@ void fileSend(char* filePath, int newfd) {
   FILE* targetFile = fopen(filePath, "r");
 
   // read file to buffer
-  while ((fileSize = fread(fileBuffer, sizeof(char), sizeof(fileBuffer), targetFile)) > 0) {
+  while ((fileSize = fread(fileBuffer, sizeof(char), sizeof(fileBuffer), targetFile)) >= 0) {
     // try to write (atm assuming write will be successful, probs unsafe @)
     writeStatus = write(newfd, fileBuffer, fileSize);
   }
@@ -252,17 +256,29 @@ void serviceRequest(int newfd, char* buffer, cmd_args_t config) {
   // worker to handle new incomming - can be used standalone or multithreaded
   int charsRead;
 
-  while ((charsRead = read(newfd, buffer, sizeof(buffer)-1)) > 0) {
-    // writing to buffer
+  printf("- reading to buffer\n");
+  int index = 0;
+  while ((charsRead = read(newfd, buffer+index, SEND_BUFFER - 1)) >= 0) {
+    if (strstr(buffer, DBL_CRLF)) {
+      // found double CRLF in buffer
+      break;
+    }
+    // move buffer index along
+    index += charsRead;
   }
+
+  printf("- finished reading\n");
 
   // received get command, pass to ingest
   request_t newRequest = ingestRequest(buffer, config);
 
   if (newRequest.validRequest == 0) {
     // request was malformed somehow
+    printf("- invalid request, dropping\n");
     return;
   }
+
+  printf("- valid request! executing\n");
 
   executeRequest(newRequest, newfd);
   // this request has been serviced.
@@ -302,10 +318,10 @@ int main(int argc, char *argv[]) {
 
     connfd = accept(listenfd, (struct sockaddr*)&client_addr, &client_addr_size);
 
-    printf("\n - new connection found: servicing request\n");
+    printf("\n- new connection found: servicing request\n");
     // pass addr to thread to deal with
     serviceRequest(connfd, buffer, config);
-    printf(" - request finished\n");
+    printf("- request finished\n");
 
     // finished servicing new request
   }
