@@ -13,13 +13,14 @@
 #define DBL_CRLF "\r\n\r\n"
 
 // file constants
-#define TYPE_DELIM ','
+#define TYPE_DELIM '.'
 #define PARENT_COMMAND ".."
 
 // size constants
 #define ARGUMENT_COUNT 4
-#define METHOD_SIZE 3
+#define METHOD_SIZE 4
 #define SEND_BUFFER 2048
+#define READ_BUFFER 1024
 #define ALLOWED_CONNECTIONS 10
 
 
@@ -127,7 +128,6 @@ char* combinePaths(char* root, char* file) {
   char* totalPath = malloc(strlen(root) + strlen(file)+1);
   strcat(totalPath, root);
   strcat(totalPath, file);
-  printf(totalPath);
 
   return totalPath;
 
@@ -148,30 +148,33 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
     if (tokenCount == 0) {
       // trying to read request method
-      if ((tokenLength == METHOD_SIZE) && (strcmp(newToken, REQUEST_GET) == 0)) {
+      if ((tokenLength == METHOD_SIZE-1) && (strcmp(newToken, REQUEST_GET) == 0)) {
         // matches size of a get request
         strcpy(method, newToken);
 
       } else {
         // too big/small
+        printf("- Invalid request (too big/small)\n");
         potentialRequest.validRequest = 0;
         return potentialRequest;
       }
 
 
-
     } else if (tokenCount == 1) {
       // tring to read filepath now
-
+      printf("Token length: %d\n", tokenLength);
       // check if file exists at root
-      if (isValidPath(combinePaths(config.rootPath, newToken))) {
+      char* potentialFile = combinePaths(config.rootPath, newToken);
+
+      if (isValidPath(potentialFile)) {
         // path is valid, store in request
-        potentialRequest.filePath = malloc(sizeof(char)*tokenLength);
-        strcpy(potentialRequest.filePath, newToken);
+        potentialRequest.filePath = malloc(strlen(potentialFile)+1);
+        strcpy(potentialRequest.filePath, potentialFile);
 
         // get file type, and store
         char* MIMEType = getMIMEType(newToken);
-        potentialRequest.fileType = malloc(sizeof(char)*strlen(MIMEType));
+        printf("mimetype is %s\n",MIMEType);
+        potentialRequest.fileType = malloc(strlen(MIMEType));
         strcpy(potentialRequest.fileType, MIMEType);
 
         // file was found, success!
@@ -256,12 +259,15 @@ void serviceRequest(int newfd, char* buffer, cmd_args_t config) {
   // worker to handle new incomming - can be used standalone or multithreaded
   int charsRead;
 
+
   printf("- reading to buffer\n");
   int index = 0;
-  while ((charsRead = read(newfd, buffer+index, SEND_BUFFER - 1)) >= 0) {
-    if (strstr(buffer, DBL_CRLF)) {
-      // found double CRLF in buffer
-      break;
+  while ((charsRead = read(newfd, buffer + index, SEND_BUFFER - 1)) >= 0) {
+    if (charsRead > 0) {
+      if (strstr(buffer, DBL_CRLF)) {
+        // found double CRLF in buffer
+        break;
+      }
     }
     // move buffer index along
     index += charsRead;
@@ -286,7 +292,10 @@ void serviceRequest(int newfd, char* buffer, cmd_args_t config) {
 }
 
 int main(int argc, char *argv[]) {
+  //
   char buffer[SEND_BUFFER];
+
+
   int connfd;
 
   printf("- Server Startup: entered main\n");
@@ -318,6 +327,8 @@ int main(int argc, char *argv[]) {
 
     connfd = accept(listenfd, (struct sockaddr*)&client_addr, &client_addr_size);
 
+    // initialise buffer (to please valgrind)
+    bzero(buffer, SEND_BUFFER);
     printf("\n- new connection found: servicing request\n");
     // pass addr to thread to deal with
     serviceRequest(connfd, buffer, config);
@@ -336,7 +347,7 @@ char* getMIMEType(char* filePath) {
 
   char* fullStop = strrchr(filePath, TYPE_DELIM);
   // get pointer to full stop delim in path
-  if (fullStop == NULL || strlen(fullStop+1) <= 0) {
+  if (fullStop == NULL) {
     // malformed input: no delim or filetype does not exist
     return NULL;
   }
@@ -365,7 +376,8 @@ char* getMIMEType(char* filePath) {
 
 int isValidPath(char* filePath) {
   // helper func to check filepath exists and type is correct
-
+  printf("-- trying to open file at: \n");
+  printf("-- %s\n",filePath);
   if (strlen(filePath) > 0) {
     // path isn't empty
     if (fopen(filePath, "r") != NULL) {
@@ -373,9 +385,16 @@ int isValidPath(char* filePath) {
 
       // check for escape attempt
       if (strstr(filePath, PARENT_COMMAND) == 0) {
+        printf("-- good file\n");
         return 1;
+      } else {
+        printf("-- escape attempt found\n");
       }
+    } else {
+      printf("-- unable to open\n");
     }
+  } else {
+    printf("-- path is empty\n");
   }
 
   // unable to open / illegal instruction
