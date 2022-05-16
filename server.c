@@ -13,6 +13,7 @@
 
 // file constants
 #define TYPE_DELIM ','
+#define PARENT_COMMAND ".."
 
 // size constants
 #define ARGUMENT_COUNT 3
@@ -36,7 +37,6 @@ struct request_t {
   int statusCode;
   int handlerID;
   char* fileType;
-  char* rootPath;
   char* filePath;
   int validRequest; // request is finished and can be used
 };
@@ -51,7 +51,7 @@ struct cmd_args_t {
 
 int isValidPath(char* filePath);
 char* getMIMEType(char* filePath);
-
+void fileSend(char* filePath, int newfd);
 
 int initialiseSocket(int protocolNumber, char* portNumber) {
   // code to setup socket - adapting from code provided in lectures
@@ -87,10 +87,6 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
 
 }
 
- {
-  // code to handle a new request - will be assigned to threads if I get that far
-}
-
 
 cmd_args_t ingestCommandLine(char *argv[]) {
   // read arguments given from command line and save to cmd_args struct
@@ -111,7 +107,17 @@ cmd_args_t ingestCommandLine(char *argv[]) {
 }
 
 
-request_t ingestRequest(char* input) {
+char* combinePaths(char* root, char* file) {
+  // add file path to end of root location
+  char* totalPath = malloc(sizeof(root) + sizeof(file));
+  strcat(totalPath, root);
+  strcat(totalPath, file);
+
+  return totalPath;
+
+}
+
+request_t ingestRequest(char* input, cmd_args_t config) {
   // take raw tcp input and convert to a request type for easy access
   // should do as much error handling in here as possible
   request_t potentialRequest;
@@ -139,7 +145,9 @@ request_t ingestRequest(char* input) {
 
     } else if (tokenCount == 1) {
       // tring to read filepath now
-      if (isValidPath(newToken)) {
+
+      // check if file exists at root
+      if (isValidPath(combinePaths(config.rootPath, newToken))) {
         // path is valid, store in request
         potentialRequest.filePath = malloc(sizeof(char)*tokenLength);
         strcpy(potentialRequest.filePath, newToken);
@@ -149,9 +157,13 @@ request_t ingestRequest(char* input) {
         potentialRequest.fileType = malloc(sizeof(char)*strlen(MIMEType));
         strcpy(potentialRequest.fileType, MIMEType);
 
+        // file was found, success!
+        potentialRequest.statusCode = STATUS_SUCCESS;
+
       } else {
-        // too big/small
+        // file did not exist, return a 404
         potentialRequest.validRequest = 0;
+        potentialRequest.statusCode = STATUS_CLIENT_ERROR;
         return potentialRequest;
       }
 
@@ -163,55 +175,88 @@ request_t ingestRequest(char* input) {
 
   }
 
+
   return potentialRequest;
 }
 
 
-void executeRequest(request_t request) {
+
+
+void executeRequest(request_t request, int newfd) {
   // given a valid request, respond and then send file
 
   // respond to request
+  if (request.statusCode == STATUS_SUCCESS) {
+    // send confirmation
+    char httpConfirm[] = "HTTP/1.1 200 OK\n";
+    int written = write(newfd, http_confirm, strlen(http_confirm));
 
-  // join expected file path to root path
-  char* totalPath = malloc(sizeof(request.rootPath) + sizeof(request.filePath));
-  strcat(totalPath, request.rootPath);
-  strcat(totalPath, request.filePath);
+    // send file header
+    char mimeConfirm[] = "Content-Type: ";
+    char* mimeHeader = malloc(sizeof(mimeConfirm) + sizeof(request.fileType));
+    strcat(mimeHeader, mimeConfirm);
+    strcat(mimeHeader, request.fileType);
+    int written = write(newfd, mimeHeader, strlen(mimeHeader));
 
-  if (isValidPath(totalPath))
+    // since successful, send file also
+    fileSend(request.filePath, newfd);
 
+  } else if (request.statusCode == STATUS_CLIENT_ERROR) {
+    // send failure message
+    char httpFailure[] = "HTTP/1.1 404";
+    int written = write(newfd, httpFailure, strlen(httpFailure));
+  }
+
+  // finished all sending
 }
 
-void sendFile(char* filePath) {
+
+void fileSend(char* filePath, int newfd) {
   // code to send file if found, through socket
+  int fileSize, writeStatus;
+  int localSize = SEND_BUFFER;
+  char* fileBuffer = malloc(sizeof(char) * localSize);
+
+  // get file
+  FILE* targetFile = fopen(filePath, "r");
+
+  // read file to buffer
+  while ((fileSize = fread(fileBuffer, sizeof(char), sizeof(fileBuffer), targetFile)) > 0) {
+    // try to write (atm assuming write will be successful, probs unsafe @)
+    writeStatus = write(newfd, fileBuffer, fileSize);
+  }
+
+  // close file
+  fclose(targetFile);
+
+  // @ could return write status here if needed, won't do just yet
 }
 
 
-void newRequest(int newfd, char buffer, cmd_args_t config) {
+void serviceRequest(int newfd, char* buffer, cmd_args_t config) {
   // worker to handle new incomming - can be used standalone or multithreaded
+  int charsRead;
 
   while ((charsRead = read(newfd, buffer, sizeof(buffer)-1)) > 0) {
     // writing to buffer
   }
 
   // received get command, pass to ingest
-  request_t newRequest = ingestRequest(buffer);
+  request_t newRequest = ingestRequest(buffer, config);
 
-  if (newRequest == NULL) {
+  if (newRequest.validRequest == 0) {
     // request was malformed somehow
-    return 0;
-  } else {
-    // request was good, add root path
-    newRequest.rootPath = malloc(sizeof(config.rootPath));
-    strcmp(newRequest.rootPath, config.rootPath);
+    return;
   }
 
-
-  executeRequest(newRequest);
-
+  executeRequest(newRequest, newfd);
+  // this request has been serviced.
+  // @ here is where thread will close when I get around to it
 }
 
 int main(int argc, char *argv[]) {
   char buffer[SEND_BUFFER];
+  int connfd;
 
   // read cmdline input to get addrinfo
   if (argc != ARGUMENT_COUNT) {
@@ -223,7 +268,7 @@ int main(int argc, char *argv[]) {
   cmd_args_t config = ingestCommandLine(argv);
 
   // create socket and start listening on it
-  int listen = initialiseSocket(config.protocolNumber, config.portNumber);
+  int listenfd = initialiseSocket(config.protocolNumber, config.portNumber);
 
   // socket is good to go, begin responding to requests
   while (1) {
@@ -235,7 +280,9 @@ int main(int argc, char *argv[]) {
     connfd = accept(listenfd, (struct sockaddr*)&client_addr, &client_addr_size);
 
     // pass addr to thread to deal with
-    newRequest(connfd);
+    serviceRequest(connfd, buffer, config);
+
+    // finished servicing new request
 
 
 
@@ -287,11 +334,15 @@ int isValidPath(char* filePath) {
     // path isn't empty
     if (fopen(filePath, "r") != NULL) {
       // able to open
-      return 1;
+
+      // check for escape attempt
+      if (strstr(filePath, PARENT_COMMAND) == 0) {
+        return 1;
+      }
     }
   }
 
-  // unable to open
+  // unable to open / illegal instruction
   return 0;
 
 }
