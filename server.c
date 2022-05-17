@@ -3,6 +3,7 @@
 #include <string.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #define STATUS_SUCCESS 200
 #define STATUS_CLIENT_ERROR 404
@@ -19,7 +20,7 @@
 // size constants
 #define ARGUMENT_COUNT 4
 #define METHOD_SIZE 4
-#define SEND_BUFFER 2048
+#define SEND_BUFFER 4096
 #define READ_BUFFER 1024
 #define ALLOWED_CONNECTIONS 10
 
@@ -173,7 +174,6 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
         // get file type, and store
         char* MIMEType = getMIMEType(newToken);
-        printf("mimetype is %s\n",MIMEType);
         potentialRequest.fileType = malloc(strlen(MIMEType));
         strcpy(potentialRequest.fileType, MIMEType);
 
@@ -209,22 +209,25 @@ void executeRequest(request_t request, int newfd) {
   // respond to request
   if (request.statusCode == STATUS_SUCCESS) {
     // send confirmation
-    char httpConfirm[] = "HTTP/1.1 200 OK\n";
+    char httpConfirm[] = "HTTP/1.1 200 OK\r\n";
     written = write(newfd, httpConfirm, strlen(httpConfirm));
 
     // send file header
     char mimeConfirm[] = "Content-Type: ";
-    char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType));
+    printf("second\n");
+    char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(CRLF));
     strcat(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
+    strcat(mimeHeader, CRLF);
+    printf("third\n");
     int written = write(newfd, mimeHeader, strlen(mimeHeader));
-
+    printf("fourth\n");
     // since successful, send file also
     fileSend(request.filePath, newfd);
 
   } else if (request.statusCode == STATUS_CLIENT_ERROR) {
     // send failure message
-    char httpFailure[] = "HTTP/1.1 404";
+    char httpFailure[] = "HTTP/1.1 404\r\n";
     written = write(newfd, httpFailure, strlen(httpFailure));
   }
 
@@ -235,18 +238,34 @@ void executeRequest(request_t request, int newfd) {
 void fileSend(char* filePath, int newfd) {
   // code to send file if found, through socket
   int fileSize, writeStatus;
-  int localSize = SEND_BUFFER;
-  char* fileBuffer = malloc(sizeof(char) * localSize);
+  int localSize = SEND_BUFFER*2;
+  struct stat fileStat;
+
+
+
 
   // get file
   FILE* targetFile = fopen(filePath, "r");
+  int totalSent = 0;
+  int fd;
+
+  // calculate size of file and allocate buffer space
+  fd = fileno(targetFile);
+  fstat(fd, &fileStat);
+  off_t fSize = fileStat.st_size;
+  char* fileBuffer = malloc(fSize + 1);
+  printf("- file size = %ld\n",fSize);
+
 
   // read file to buffer
-  while ((fileSize = fread(fileBuffer, sizeof(char), sizeof(fileBuffer), targetFile)) >= 0) {
-    // try to write (atm assuming write will be successful, probs unsafe @)
+  while ((fileSize = fread(fileBuffer, sizeof(char), fSize, targetFile)) > 0) {
+    // write read amount
     writeStatus = write(newfd, fileBuffer, fileSize);
+    totalSent += fileSize;
   }
+
   printf("- File sent successfully\n");
+  printf("- sent %d\n", totalSent);
 
   // close file
   fclose(targetFile);
