@@ -4,6 +4,8 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <pthread.h>
+
 
 #define STATUS_SUCCESS 200
 #define STATUS_CLIENT_ERROR 404
@@ -50,6 +52,8 @@ struct cmd_args_t {
   int protocolNumber;
   char* portNumber;
   char* rootPath;
+  int fileDescriptor;
+
 };
 
 int isValidPath(char* filePath);
@@ -99,6 +103,25 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
 
 
   return listenfd;
+
+}
+
+cmd_args_t recompileConfig(cmd_args_t inputConfig, int fD) {
+  // take input config, make individual copy for each thread bundled
+  // with the fileDescriptor for that thread
+
+  cmd_args_t newConfig;
+
+  newConfig.protocolNumber = inputConfig.protocolNumber;
+  newConfig.portNumber = inputConfig.portNumber;
+  newConfig.rootPath = malloc(strlen(inputConfig.rootPath)+1);
+  strcpy(newConfig.rootPath, inputConfig.rootPath);
+
+  // bundle fd
+  newConfig.fileDescriptor = fD;
+
+  return newConfig;
+
 
 }
 
@@ -174,7 +197,7 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
         // get file type, and store
         char* MIMEType = getMIMEType(newToken);
-        potentialRequest.fileType = malloc(strlen(MIMEType));
+        potentialRequest.fileType = malloc(strlen(MIMEType)+1);
         strcpy(potentialRequest.fileType, MIMEType);
 
         // file was found, success!
@@ -214,14 +237,11 @@ void executeRequest(request_t request, int newfd) {
 
     // send file header
     char mimeConfirm[] = "Content-Type: ";
-    printf("second\n");
-    char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(CRLF));
+    char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(CRLF) + 1);
     strcat(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
     strcat(mimeHeader, CRLF);
-    printf("third\n");
     int written = write(newfd, mimeHeader, strlen(mimeHeader));
-    printf("fourth\n");
     // since successful, send file also
     fileSend(request.filePath, newfd);
 
@@ -231,6 +251,8 @@ void executeRequest(request_t request, int newfd) {
     written = write(newfd, httpFailure, strlen(httpFailure));
   }
 
+  // close socket
+
   // finished all sending
 }
 
@@ -238,11 +260,7 @@ void executeRequest(request_t request, int newfd) {
 void fileSend(char* filePath, int newfd) {
   // code to send file if found, through socket
   int fileSize, writeStatus;
-  int localSize = SEND_BUFFER*2;
   struct stat fileStat;
-
-
-
 
   // get file
   FILE* targetFile = fopen(filePath, "r");
@@ -274,9 +292,17 @@ void fileSend(char* filePath, int newfd) {
 }
 
 
-void serviceRequest(int newfd, char* buffer, cmd_args_t config) {
+void* serviceRequest(void* configIn) {
   // worker to handle new incomming - can be used standalone or multithreaded
+
+  cmd_args_t config = *((cmd_args_t*)configIn);
+
+  // store local copies of main args
+  int newfd = config.fileDescriptor;
   int charsRead;
+
+  char buffer[SEND_BUFFER];
+  bzero(buffer, SEND_BUFFER);
 
 
   printf("- reading to buffer\n");
@@ -300,20 +326,21 @@ void serviceRequest(int newfd, char* buffer, cmd_args_t config) {
   if (newRequest.validRequest == 0) {
     // request was malformed somehow
     printf("- invalid request, dropping\n");
-    return;
+    return NULL;
   }
 
   printf("- valid request! executing\n");
 
   executeRequest(newRequest, newfd);
+  close(newfd);
+  printf("- Socket closed in serviceRequest()\n");
   // this request has been serviced.
   // @ here is where thread will close when I get around to it
+  return NULL;
 }
 
 int main(int argc, char *argv[]) {
   //
-  char buffer[SEND_BUFFER];
-
 
   int connfd;
 
@@ -330,30 +357,41 @@ int main(int argc, char *argv[]) {
   printf("- Reading command line arguments (%d found)\n", argc);
   cmd_args_t config = ingestCommandLine(argv);
   printf("- Config succesfully ingested\n");
-
+  pthread_t threadIdentifier;
   // create socket and start listening on it
   int listenfd = initialiseSocket(config.protocolNumber, config.portNumber);
 
   printf("- Socket created successfully\n");
 
+
+
+
   // socket is good to go, begin responding to requests
-  printf("- Accepting connections...\n");
   while (1) {
 
+    printf("- Accepting new connection...\n");
+    // bundle up arguments to pass through to threads
     // accept new connection
     struct sockaddr_storage client_addr;
     socklen_t client_addr_size = sizeof client_addr;
-
     connfd = accept(listenfd, (struct sockaddr*)&client_addr, &client_addr_size);
 
+    cmd_args_t threadConfig = recompileConfig(config, connfd);
+
     // initialise buffer (to please valgrind)
-    bzero(buffer, SEND_BUFFER);
+
+    printf("Fd insertion = %d\n", connfd);
     printf("\n- new connection found: servicing request\n");
     // pass addr to thread to deal with
-    serviceRequest(connfd, buffer, config);
+    int threadResult = pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)&threadConfig);
+    //serviceRequest(connfd, config);
+
+    pthread_join(threadIdentifier, NULL);
     printf("- request finished\n");
 
     // finished servicing new request
+
+
   }
 
   return 0;
