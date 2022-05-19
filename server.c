@@ -130,14 +130,15 @@ void recompileConfig(cmd_args_t* newConfig, cmd_args_t inputConfig, int fD) {
   // with the fileDescriptor for that thread
 
   newConfig->protocolNumber = inputConfig.protocolNumber;
-  newConfig->portNumber = inputConfig.portNumber;
+  newConfig->portNumber = malloc(strlen(inputConfig.portNumber)+1);
   newConfig->rootPath = malloc(strlen(inputConfig.rootPath)+1);
+  strcpy(newConfig->portNumber, inputConfig.portNumber);
   strcpy(newConfig->rootPath, inputConfig.rootPath);
 
   // bundle fd
   newConfig->fileDescriptor = fD;
 
-  printf("nd %d\n", newConfig->fileDescriptor);
+  printf("rt %s\n", newConfig->rootPath);
 
 
 
@@ -196,9 +197,12 @@ cmd_args_t ingestCommandLine(char *argv[]) {
 
 char* combinePaths(char* root, char* file) {
   // add file path to end of root location
+  printf("root ih: %s, token ih: %s\n",root, file);
   char* totalPath = malloc(strlen(root) + strlen(file)+1);
-  strcat(totalPath, root);
+  strcpy(totalPath, root);
+  printf("partial: %s\n", totalPath);
   strcat(totalPath, file);
+  printf("final: %s\n", totalPath);
 
   return totalPath;
 
@@ -238,6 +242,7 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
       // check if file exists at root
       char* potentialFile =  malloc(strlen(config.rootPath) + strlen(newToken)+1);
+      printf("root here: %s, token here: %s\n",config.rootPath, newToken);
       potentialFile = combinePaths(config.rootPath, newToken);
 
       if (isValidPath(potentialFile)) {
@@ -293,13 +298,15 @@ void executeRequest(request_t request, int newfd) {
     printf("starting\n");
     char mimeConfirm[] = "Content-Type: ";
     char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(DBL_CRLF) + 2);
-    strcat(mimeHeader, mimeConfirm);
+    strcpy(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
     strcat(mimeHeader, DBL_CRLF);
     printf("done\n");
+    printf(mimeHeader);
 
     write(newfd, mimeHeader, strlen(mimeHeader));
     // since successful, send file also
+    printf("as");
     fileSend(request.filePath, newfd);
 
   } else if (request.statusCode == STATUS_CLIENT_ERROR) {
@@ -328,6 +335,7 @@ void fileSend(char* filePath, int newfd) {
   // calculate size of file and allocate buffer space
   fd = fileno(targetFile);
   fstat(fd, &fileStat);
+  printf("pre malloc: \n");
   off_t fSize = fileStat.st_size;
   char* fileBuffer = malloc(fSize + 1);
   printf("- file size = %ld\n",fSize);
@@ -357,6 +365,7 @@ void* serviceRequest(void* configIn) {
 
   // store local copies of main args
   int newfd = config.fileDescriptor;
+  printf("rooooot %s\n", config.rootPath);
   printf("- new thread is alive, running on %d\n", newfd);
   int charsRead;
 
@@ -448,7 +457,7 @@ int main(int argc, char *argv[]) {
     cmd_args_t* threadConfig = malloc(sizeof(cmd_args_t));
     recompileConfig(threadConfig, config, connfd);
 
-    printf("ndd %d\n", threadConfig->fileDescriptor);
+    printf("root %s\n", threadConfig->rootPath);
 
     printf("\n- new connection found: servicing request\n");
     // pass addr to thread to deal with
