@@ -293,7 +293,7 @@ void executeRequest(request_t request, int newfd) {
   } else if (request.statusCode == STATUS_CLIENT_ERROR) {
     // send failure message
     printf("- sending failure\n");
-    char httpFailure[] = "HTTP/1.0 404\r\n\r\n";
+    char httpFailure[] = "HTTP/1.0 404 \r\n\r\n";
     written = write(newfd, httpFailure, strlen(httpFailure));
   }
 
