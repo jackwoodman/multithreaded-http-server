@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <ctype.h>
 
 
 #define STATUS_SUCCESS 200
@@ -59,6 +60,7 @@ struct cmd_args_t {
 
 };
 
+int convertsToNumber(char* inString);
 int isValidPath(char* filePath);
 int isValidDirectory(char* filePath);
 char* getMIMEType(char* filePath);
@@ -145,15 +147,15 @@ cmd_args_t ingestCommandLine(char *argv[]) {
   if (atoi(argv[1]) == 4 || atoi(argv[1]) == 6) {
     newConfig.protocolNumber = atoi(argv[1]);
   } else {
-    // incrorect protocol number
+    // incorrect protocol number
     newConfig.ignoreConfig = 1;
     printf("ERROR: inavlid protocol number\n");
   }
 
 
   // port number (as a string)
-  if (atoi(argv[2]) >= 0) {
-    // port number within range
+  if (atoi(argv[2]) >= 0 && convertsToNumber(argv[2])) {
+    // port is number within range
     newConfig.portNumber = malloc(strlen(argv[2]) + 1);
     strcpy(newConfig.portNumber, argv[2]);
 
@@ -391,7 +393,7 @@ int main(int argc, char *argv[]) {
   // read cmdline input to get addrinfo
   if (argc != ARGUMENT_COUNT) {
     // not enough / too many arguments
-    return 0;
+    exit(0);
   }
 
 
@@ -403,7 +405,7 @@ int main(int argc, char *argv[]) {
     // something in the command line input was malformed
     // unable to proceed, so terminate server
     printf(" - bad command line input\n");
-    return 0;
+    exit(0);
   }
 
   printf("- Config succesfully ingested\n");
@@ -414,7 +416,7 @@ int main(int argc, char *argv[]) {
   if (listenfd == -1) {
     // could not intialiseSocket, therefore can't run server
     printf("- Socket failure\n");
-    return 0;
+    exit(0);
   }
 
   printf("- Socket created successfully\n");
@@ -480,6 +482,21 @@ char* getMIMEType(char* filePath) {
   return fileType;
 }
 
+
+int convertsToNumber(char* inString) {
+  // checks if this string contains an integer once converted
+  for (int i=0; i<strlen(inString); i++) {
+      if (!isdigit(inString[i])) {
+        // found something that isn't a digit
+        return 0;
+      }
+
+  }
+
+  // no non-digits found
+  return 1;
+}
+
 int isValidDirectory(char* filePath) {
   // helper func to check directory exists
   struct stat dirStat;
@@ -488,6 +505,12 @@ int isValidDirectory(char* filePath) {
     return 0;
   }
 
+
+  if (!S_ISDIR(dirStat.st_mode)) {
+    // is file, not directory
+    printf("- The path you've given is to a file, not a directory\n");
+    return 0;
+  }
   return 1;
 }
 
