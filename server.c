@@ -45,6 +45,7 @@ struct request_t {
   char* fileType;
   char* filePath;
   int validRequest; // request is finished and can be used
+
 };
 
 
@@ -187,7 +188,7 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
     } else if (tokenCount == 1) {
       // tring to read filepath now
-      printf("Token length: %d\n", tokenLength);
+      
       // check if file exists at root
       char* potentialFile = combinePaths(config.rootPath, newToken);
 
@@ -207,7 +208,7 @@ request_t ingestRequest(char* input, cmd_args_t config) {
       } else {
         // file did not exist, return a 404
         printf("- Invalid request (404)\n");
-        potentialRequest.validRequest = 0;
+        potentialRequest.validRequest = 1;
         potentialRequest.statusCode = STATUS_CLIENT_ERROR;
         return potentialRequest;
       }
@@ -242,12 +243,13 @@ void executeRequest(request_t request, int newfd) {
     strcat(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
     strcat(mimeHeader, CRLF);
-    int written = write(newfd, mimeHeader, strlen(mimeHeader));
+    written = write(newfd, mimeHeader, strlen(mimeHeader));
     // since successful, send file also
     fileSend(request.filePath, newfd);
 
   } else if (request.statusCode == STATUS_CLIENT_ERROR) {
     // send failure message
+    printf("- sending failure\n");
     char httpFailure[] = "HTTP/1.1 404\r\n";
     written = write(newfd, httpFailure, strlen(httpFailure));
   }
@@ -302,6 +304,7 @@ void* serviceRequest(void* configIn) {
   int newfd = config.fileDescriptor;
   int charsRead;
 
+  // create threadlocal buffer to receive data
   char buffer[SEND_BUFFER];
   bzero(buffer, SEND_BUFFER);
 
@@ -324,8 +327,8 @@ void* serviceRequest(void* configIn) {
   // received get command, pass to ingest
   request_t newRequest = ingestRequest(buffer, config);
 
-  if (newRequest.validRequest == 0) {
-    // request was malformed somehow
+  if (newRequest.validRequest == 0 && newRequest.statusCode != STATUS_CLIENT_ERROR) {
+    // request failed, but not due to a 404 error
     printf("- invalid request, dropping\n");
     return NULL;
   }
@@ -364,7 +367,6 @@ int main(int argc, char *argv[]) {
 
   printf("- Socket created successfully\n");
 
-
   // socket is good to go, begin responding to requests
   while (1) {
     printf("- Accepting new connection...\n");
@@ -376,8 +378,6 @@ int main(int argc, char *argv[]) {
 
     cmd_args_t threadConfig = recompileConfig(config, connfd);
 
-    // initialise buffer (to please valgrind)
-
 
     printf("\n- new connection found: servicing request\n");
     // pass addr to thread to deal with
@@ -387,11 +387,6 @@ int main(int argc, char *argv[]) {
 
     printf(" = DETATCHING THREAD\n");
     pthread_detach(threadIdentifier);
-    printf(" == WAITING TO CLOSE THREAD %d\n", connfd);
-    pthread_join(threadIdentifier, NULL);
-    printf(" == CLOSED THREAD %d\n\n", connfd);
-    printf("- request finished\n");
-
     // finished servicing new request
 
 
