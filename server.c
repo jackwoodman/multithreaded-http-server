@@ -55,10 +55,12 @@ struct cmd_args_t {
   char* portNumber;
   char* rootPath;
   int fileDescriptor;
+  int ignoreConfig; // bad cmd line input, don't use this config
 
 };
 
 int isValidPath(char* filePath);
+int isValidDirectory(char* filePath);
 char* getMIMEType(char* filePath);
 void fileSend(char* filePath, int newfd);
 
@@ -99,7 +101,14 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
   }
 
   // socket binding
-  bind(listenfd, res->ai_addr, res->ai_addrlen);
+  int bindStatus = bind(listenfd, res->ai_addr, res->ai_addrlen);
+
+  if (bindStatus == -1) {
+    // tried to bind to an already-bound port
+    return bindStatus;
+  }
+
+
   listen(listenfd, ALLOWED_CONNECTIONS);
   printf("- Listening on socket at file description %d\n", listenfd);
 
@@ -133,17 +142,46 @@ cmd_args_t ingestCommandLine(char *argv[]) {
   cmd_args_t newConfig;
 
   // (IPv)4 or (IPv)6
-  newConfig.protocolNumber = atoi(argv[1]);
+  if (atoi(argv[1]) == 4 || atoi(argv[1]) == 6) {
+    newConfig.protocolNumber = atoi(argv[1]);
+  } else {
+    // incrorect protocol number
+    newConfig.ignoreConfig = 1;
+    printf("ERROR: inavlid protocol number\n");
+  }
+
 
   // port number (as a string)
-  newConfig.portNumber = malloc(strlen(argv[2]) + 1);
-  strcpy(newConfig.portNumber, argv[2]);
+  if (atoi(argv[2]) >= 0) {
+    // port number within range
+    newConfig.portNumber = malloc(strlen(argv[2]) + 1);
+    strcpy(newConfig.portNumber, argv[2]);
+
+  } else {
+    // port number not acceptable
+    printf("ERROR: inavlid port number\n");
+    newConfig.ignoreConfig = 1;
+
+  }
+
 
   // read path to root
-  newConfig.rootPath = malloc(strlen(argv[3]) + 1);
-  strcpy(newConfig.rootPath, argv[3]);
+  if (isValidDirectory(argv[3])) {
+    // found directory
+    newConfig.rootPath = malloc(strlen(argv[3]) + 1);
+    strcpy(newConfig.rootPath, argv[3]);
+
+  } else {
+    // directory doesn't exist
+    printf("ERROR: inavlid directory path\n");
+    newConfig.ignoreConfig = 1;
+
+  }
+
 
   printf("- (IPv%d, Port %s, Path %s)\n", newConfig.protocolNumber, newConfig.portNumber, newConfig.rootPath);
+
+
 
   return newConfig;
 }
@@ -188,7 +226,7 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
     } else if (tokenCount == 1) {
       // tring to read filepath now
-      
+
       // check if file exists at root
       char* potentialFile = combinePaths(config.rootPath, newToken);
 
@@ -360,10 +398,24 @@ int main(int argc, char *argv[]) {
   // we have enough arguments, ingest them to config struct
   printf("- Reading command line arguments (%d found)\n", argc);
   cmd_args_t config = ingestCommandLine(argv);
+
+  if (config.ignoreConfig == 1) {
+    // something in the command line input was malformed
+    // unable to proceed, so terminate server
+    printf(" - bad command line input\n");
+    return 0;
+  }
+
   printf("- Config succesfully ingested\n");
   pthread_t threadIdentifier;
   // create socket and start listening on it
   int listenfd = initialiseSocket(config.protocolNumber, config.portNumber);
+
+  if (listenfd == -1) {
+    // could not intialiseSocket, therefore can't run server
+    printf("- Socket failure\n");
+    return 0;
+  }
 
   printf("- Socket created successfully\n");
 
@@ -426,6 +478,17 @@ char* getMIMEType(char* filePath) {
   }
 
   return fileType;
+}
+
+int isValidDirectory(char* filePath) {
+  // helper func to check directory exists
+  struct stat dirStat;
+  if (stat(filePath, &dirStat) != 0) {
+    // some error has occured in creating the stat, so not dir
+    return 0;
+  }
+
+  return 1;
 }
 
 
