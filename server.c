@@ -16,7 +16,10 @@
 #define REQUEST_GET "GET"
 #define CRLF "\r\n"
 #define DBL_CRLF "\r\n\r\n"
+
+// marking constants
 #define MULTITHREADED
+#define IMPLEMENTS_IPV6
 
 // file constants
 #define TYPE_DELIM '.'
@@ -70,7 +73,7 @@ void fileSend(char* filePath, int newfd);
 int initialiseSocket(int protocolNumber, char* portNumber) {
   // code to setup socket - adapting from code provided in lectures
   int listenfd, re, s;
-  struct addrinfo hints, *res;
+  struct addrinfo hints, *res, *p;
 
   printf("- Initialising Socket\n");
 
@@ -78,21 +81,43 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
   memset(&hints, 0, sizeof hints);
 
 
-  // assign based on prot number
-  /*
+
+  // assign based on port number
   if (protocolNumber == 4) {
     hints.ai_family = AF_INET;
+
   } else if (protocolNumber == 6) {
     hints.ai_family = AF_INET6;
-  }*/
+  }
 
-  hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_flags = AI_PASSIVE;
-  s = getaddrinfo("127.0.0.1", portNumber, &hints, &res);
+  s = getaddrinfo(NULL, portNumber, &hints, &res);
 
   if (s != 0) {
     // get addr info failed to allocate properly
+    printf("failed allocation\n");
+    exit(EXIT_FAILURE);
+  }
+
+
+  if (protocolNumber == 6) {
+    // loop over getddrinfo() response to find IPv6 specific socket
+    // code adapted from lecture slides
+
+    for (p = res; p != NULL; p = p->ai_next) {
+      if (p->ai_family == AF_INET6 &&
+            (s = socket(p->ai_family,
+                           p->ai_socktype,
+                           p->ai_protocol)) < 0) {
+                             // failed creation
+                           }
+                         }
+    }
+
+  if (s < 0) {
+    // could not find IPv6 socket
+    printf("could not find socket on IPv6\n");
     exit(EXIT_FAILURE);
   }
 
@@ -295,18 +320,14 @@ void executeRequest(request_t request, int newfd) {
     write(newfd, httpConfirm, strlen(httpConfirm));
 
     // send file header
-    printf("starting\n");
     char mimeConfirm[] = "Content-Type: ";
     char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(DBL_CRLF) + 2);
     strcpy(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
     strcat(mimeHeader, DBL_CRLF);
-    printf("done\n");
-    printf(mimeHeader);
 
     write(newfd, mimeHeader, strlen(mimeHeader));
     // since successful, send file also
-    printf("as");
     fileSend(request.filePath, newfd);
 
   } else if (request.statusCode == STATUS_CLIENT_ERROR) {
