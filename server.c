@@ -68,8 +68,8 @@ void fileSend(char* filePath, int newfd);
 
 int initialiseSocket(int protocolNumber, char* portNumber) {
   // code to setup socket - adapting from code provided in lectures
-  int listenfd, connfd, re, s;
-  struct addrinfo hints, *res, *rp;
+  int listenfd, re, s;
+  struct addrinfo hints, *res;
 
   printf("- Initialising Socket\n");
 
@@ -89,6 +89,11 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_flags = AI_PASSIVE;
   s = getaddrinfo("127.0.0.1", portNumber, &hints, &res);
+
+  if (s != 0) {
+    // get addr info failed to allocate properly
+    exit(EXIT_FAILURE);
+  }
 
   // create socket and allow reuse
   re = 1;
@@ -276,13 +281,13 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
 void executeRequest(request_t request, int newfd) {
   // given a valid request, respond and then send file
-  int written;
+
   printf("- Executing request\n");
   // respond to request
   if (request.statusCode == STATUS_SUCCESS) {
     // send confirmation
     char httpConfirm[] = "HTTP/1.0 200 OK\r\n";
-    written = write(newfd, httpConfirm, strlen(httpConfirm));
+    write(newfd, httpConfirm, strlen(httpConfirm));
 
     // send file header
     printf("starting\n");
@@ -293,7 +298,7 @@ void executeRequest(request_t request, int newfd) {
     strcat(mimeHeader, DBL_CRLF);
     printf("done\n");
 
-    written = write(newfd, mimeHeader, strlen(mimeHeader));
+    write(newfd, mimeHeader, strlen(mimeHeader));
     // since successful, send file also
     fileSend(request.filePath, newfd);
 
@@ -301,7 +306,7 @@ void executeRequest(request_t request, int newfd) {
     // send failure message
     printf("- sending failure\n");
     char httpFailure[] = "HTTP/1.0 404 Not Found\r\n\r\n";
-    written = write(newfd, httpFailure, strlen(httpFailure));
+    write(newfd, httpFailure, strlen(httpFailure));
   }
 
   // close socket
@@ -312,7 +317,7 @@ void executeRequest(request_t request, int newfd) {
 
 void fileSend(char* filePath, int newfd) {
   // code to send file if found, through socket
-  int fileSize, writeStatus;
+  int fileSize;
   struct stat fileStat;
 
   // get file
@@ -331,7 +336,7 @@ void fileSend(char* filePath, int newfd) {
   // read file to buffer
   while ((fileSize = fread(fileBuffer, sizeof(char), fSize, targetFile)) > 0) {
     // write read amount
-    writeStatus = write(newfd, fileBuffer, fileSize);
+    write(newfd, fileBuffer, fileSize);
     totalSent += fileSize;
   }
 
@@ -446,7 +451,7 @@ int main(int argc, char *argv[]) {
     printf("\n- new connection found: servicing request\n");
     // pass addr to thread to deal with
     printf("\n == SPINNING UP NEW THREAD (%d) ==\n", connfd);
-    int threadResult = pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)&threadConfig);
+    pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)&threadConfig);
     //serviceRequest(connfd, config);
 
     printf(" = DETATCHING THREAD\n");
