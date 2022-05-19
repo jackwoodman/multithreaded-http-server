@@ -274,7 +274,7 @@ void executeRequest(request_t request, int newfd) {
   // respond to request
   if (request.statusCode == STATUS_SUCCESS) {
     // send confirmation
-    char httpConfirm[] = "HTTP/1.1 200 OK\n";
+    char httpConfirm[] = "HTTP/1.1 200 OK\r\n";
     written = write(newfd, httpConfirm, strlen(httpConfirm));
 
     // send file header
@@ -282,7 +282,8 @@ void executeRequest(request_t request, int newfd) {
     char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(CRLF) + 1);
     strcat(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
-    strcat(mimeHeader, CRLF);
+    strcat(mimeHeader, DBL_CRLF);
+
     written = write(newfd, mimeHeader, strlen(mimeHeader));
     // since successful, send file also
     fileSend(request.filePath, newfd);
