@@ -278,11 +278,13 @@ void executeRequest(request_t request, int newfd) {
     written = write(newfd, httpConfirm, strlen(httpConfirm));
 
     // send file header
+    printf("starting\n");
     char mimeConfirm[] = "Content-Type: ";
-    char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(CRLF) + 1);
+    char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(DBL_CRLF) + 1);
     strcat(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
     strcat(mimeHeader, DBL_CRLF);
+    printf("done\n");
 
     written = write(newfd, mimeHeader, strlen(mimeHeader));
     // since successful, send file also
@@ -479,7 +481,7 @@ char* getMIMEType(char* filePath) {
   } else {
     fileType = MIME_OTHER;
   }
-
+  printf("type: %s\n",fileType);
   return fileType;
 }
 
