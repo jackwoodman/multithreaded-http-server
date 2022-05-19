@@ -99,7 +99,7 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
   int enable = 1;
   if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
     perror("setsockopt");
-    exit(1);
+    exit(EXIT_FAILURE);
   }
 
   // socket binding
@@ -403,7 +403,7 @@ int main(int argc, char *argv[]) {
   // read cmdline input to get addrinfo
   if (argc != ARGUMENT_COUNT) {
     // not enough / too many arguments
-    exit(0);
+    exit(EXIT_FAILURE);
   }
 
 
@@ -415,7 +415,7 @@ int main(int argc, char *argv[]) {
     // something in the command line input was malformed
     // unable to proceed, so terminate server
     printf(" - bad command line input\n");
-    exit(0);
+    exit(EXIT_FAILURE);
   }
 
   printf("- Config succesfully ingested\n");
@@ -426,7 +426,7 @@ int main(int argc, char *argv[]) {
   if (listenfd == -1) {
     // could not intialiseSocket, therefore can't run server
     printf("- Socket failure\n");
-    exit(0);
+    exit(EXIT_FAILURE);
   }
 
   printf("- Socket created successfully\n");
@@ -456,7 +456,7 @@ int main(int argc, char *argv[]) {
 
   }
 
-  return 0;
+  exit(0);
 }
 
 
