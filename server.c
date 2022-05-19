@@ -125,24 +125,20 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
 
 }
 
-cmd_args_t recompileConfig(cmd_args_t inputConfig, int fD) {
+void recompileConfig(cmd_args_t* newConfig, cmd_args_t inputConfig, int fD) {
   // take input config, make individual copy for each thread bundled
   // with the fileDescriptor for that thread
 
-  cmd_args_t newConfig;
-  newConfig.portNumber = malloc(sizeof(inputConfig.portNumber));
-  newConfig.rootPath = malloc(sizeof(inputConfig.rootPath));
-
-
-  newConfig.protocolNumber = inputConfig.protocolNumber;
-  newConfig.portNumber = inputConfig.portNumber;
-  newConfig.rootPath = malloc(strlen(inputConfig.rootPath)+1);
-  strcpy(newConfig.rootPath, inputConfig.rootPath);
+  newConfig->protocolNumber = inputConfig.protocolNumber;
+  newConfig->portNumber = inputConfig.portNumber;
+  newConfig->rootPath = malloc(strlen(inputConfig.rootPath)+1);
+  strcpy(newConfig->rootPath, inputConfig.rootPath);
 
   // bundle fd
-  newConfig.fileDescriptor = fD;
+  newConfig->fileDescriptor = fD;
 
-  return newConfig;
+  printf("nd %d\n", newConfig->fileDescriptor);
+
 
 
 }
@@ -449,14 +445,15 @@ int main(int argc, char *argv[]) {
     struct sockaddr_storage client_addr;
     socklen_t client_addr_size = sizeof client_addr;
     connfd = accept(listenfd, (struct sockaddr*)&client_addr, &client_addr_size);
+    cmd_args_t* threadConfig = malloc(sizeof(cmd_args_t));
+    recompileConfig(threadConfig, config, connfd);
 
-    cmd_args_t threadConfig = recompileConfig(config, connfd);
-
+    printf("ndd %d\n", threadConfig->fileDescriptor);
 
     printf("\n- new connection found: servicing request\n");
     // pass addr to thread to deal with
     printf("\n == SPINNING UP NEW THREAD (%d) ==\n", connfd);
-    pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)&threadConfig);
+    pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)threadConfig);
     //serviceRequest(connfd, config);
 
     printf(" = DETATCHING THREAD\n");
