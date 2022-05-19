@@ -274,7 +274,7 @@ void executeRequest(request_t request, int newfd) {
   // respond to request
   if (request.statusCode == STATUS_SUCCESS) {
     // send confirmation
-    char httpConfirm[] = "HTTP/1.1 200 OK\r\n";
+    char httpConfirm[] = "HTTP/1.1 200 OK\r\n\r\n";
     written = write(newfd, httpConfirm, strlen(httpConfirm));
 
     // send file header
@@ -293,7 +293,7 @@ void executeRequest(request_t request, int newfd) {
   } else if (request.statusCode == STATUS_CLIENT_ERROR) {
     // send failure message
     printf("- sending failure\n");
-    char httpFailure[] = "HTTP/1.1 404\r\n";
+    char httpFailure[] = "HTTP/1.1 404\r\n\r\n";
     written = write(newfd, httpFailure, strlen(httpFailure));
   }
 
