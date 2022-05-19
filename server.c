@@ -274,7 +274,7 @@ void executeRequest(request_t request, int newfd) {
   // respond to request
   if (request.statusCode == STATUS_SUCCESS) {
     // send confirmation
-    char httpConfirm[] = "HTTP/1.1 200 OK\r\n";
+    char httpConfirm[] = "HTTP/1.1 200 OK\n";
     written = write(newfd, httpConfirm, strlen(httpConfirm));
 
     // send file header
