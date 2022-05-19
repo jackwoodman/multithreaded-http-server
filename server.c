@@ -130,6 +130,9 @@ cmd_args_t recompileConfig(cmd_args_t inputConfig, int fD) {
   // with the fileDescriptor for that thread
 
   cmd_args_t newConfig;
+  newConfig.portNumber = malloc(sizeof(inputConfig.portNumber));
+  newConfig.rootPath = malloc(sizeof(inputConfig.rootPath));
+
 
   newConfig.protocolNumber = inputConfig.protocolNumber;
   newConfig.portNumber = inputConfig.portNumber;
@@ -358,6 +361,7 @@ void* serviceRequest(void* configIn) {
 
   // store local copies of main args
   int newfd = config.fileDescriptor;
+  printf("- new thread is alive, running on %d\n", newfd);
   int charsRead;
 
   // create threadlocal buffer to receive data
