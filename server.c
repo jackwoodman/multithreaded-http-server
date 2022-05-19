@@ -16,6 +16,7 @@
 #define REQUEST_GET "GET"
 #define CRLF "\r\n"
 #define DBL_CRLF "\r\n\r\n"
+#define MULTITHREADED
 
 // file constants
 #define TYPE_DELIM '.'
