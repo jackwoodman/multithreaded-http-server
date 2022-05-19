@@ -210,7 +210,9 @@ request_t ingestRequest(char* input, cmd_args_t config) {
   int tokenCount = 0;
 
   while (newToken != NULL) {
+    printf("newToken = %s\n",newToken);
     int tokenLength = strlen(newToken);
+
 
     if (tokenCount == 0) {
       // trying to read request method
@@ -230,18 +232,23 @@ request_t ingestRequest(char* input, cmd_args_t config) {
       // tring to read filepath now
 
       // check if file exists at root
-      char* potentialFile = combinePaths(config.rootPath, newToken);
+      char* potentialFile =  malloc(strlen(config.rootPath) + strlen(newToken)+1);
+      potentialFile = combinePaths(config.rootPath, newToken);
 
       if (isValidPath(potentialFile)) {
         // path is valid, store in request
+        printf("h\n");
         potentialRequest.filePath = malloc(strlen(potentialFile)+1);
         strcpy(potentialRequest.filePath, potentialFile);
-
+        printf("a\n");
         // get file type, and store
+
         char* MIMEType = getMIMEType(newToken);
+        printf("MT is %s\n", MIMEType);
+        printf("mallocing %ld\n", strlen(MIMEType));
         potentialRequest.fileType = malloc(strlen(MIMEType)+1);
         strcpy(potentialRequest.fileType, MIMEType);
-
+        printf("c\n");
         // file was found, success!
         potentialRequest.statusCode = STATUS_SUCCESS;
 
@@ -280,7 +287,7 @@ void executeRequest(request_t request, int newfd) {
     // send file header
     printf("starting\n");
     char mimeConfirm[] = "Content-Type: ";
-    char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(DBL_CRLF) + 1);
+    char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(DBL_CRLF) + 2);
     strcat(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
     strcat(mimeHeader, DBL_CRLF);
@@ -293,7 +300,7 @@ void executeRequest(request_t request, int newfd) {
   } else if (request.statusCode == STATUS_CLIENT_ERROR) {
     // send failure message
     printf("- sending failure\n");
-    char httpFailure[] = "HTTP/1.0 404 \r\n\r\n";
+    char httpFailure[] = "HTTP/1.0 404 Not Found\r\n\r\n";
     written = write(newfd, httpFailure, strlen(httpFailure));
   }
 
@@ -460,12 +467,13 @@ char* getMIMEType(char* filePath) {
   char* fullStop = strrchr(filePath, TYPE_DELIM);
   // get pointer to full stop delim in path
   if (fullStop == NULL) {
-    // malformed input: no delim or filetype does not exist
-    return NULL;
-  }
+    // no file extension - but if we're here,it must be a valid file
+    fullStop = filePath;
+  } else {
 
-  // point now to the filetype itself
-  fullStop = fullStop + 1;
+    // point now to the filetype itself
+    fullStop = fullStop + 1;
+  }
 
   // check filetype exists
 
