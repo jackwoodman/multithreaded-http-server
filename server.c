@@ -9,6 +9,7 @@
 
 #define STATUS_SUCCESS 200
 #define STATUS_CLIENT_ERROR 404
+#define SYSTEM_ERROR -1
 #define TEST_ROOT "/www"
 #define REQUEST_DELIM " "
 #define REQUEST_GET "GET"
@@ -364,11 +365,8 @@ int main(int argc, char *argv[]) {
   printf("- Socket created successfully\n");
 
 
-
-
   // socket is good to go, begin responding to requests
   while (1) {
-
     printf("- Accepting new connection...\n");
     // bundle up arguments to pass through to threads
     // accept new connection
@@ -380,13 +378,18 @@ int main(int argc, char *argv[]) {
 
     // initialise buffer (to please valgrind)
 
-    printf("Fd insertion = %d\n", connfd);
+
     printf("\n- new connection found: servicing request\n");
     // pass addr to thread to deal with
+    printf("\n == SPINNING UP NEW THREAD (%d) ==\n", connfd);
     int threadResult = pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)&threadConfig);
     //serviceRequest(connfd, config);
 
+    printf(" = DETATCHING THREAD\n");
+    pthread_detach(threadIdentifier);
+    printf(" == WAITING TO CLOSE THREAD %d\n", connfd);
     pthread_join(threadIdentifier, NULL);
+    printf(" == CLOSED THREAD %d\n\n", connfd);
     printf("- request finished\n");
 
     // finished servicing new request
