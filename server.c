@@ -249,6 +249,13 @@ request_t ingestRequest(char* input, cmd_args_t config) {
      i++;
    }
 
+   // don't allow requests with HTTP/xx at the end
+   if (spaces != REQUIRED_TOKENS) {
+     potentialRequest.validRequest = 0;
+     return potentialRequest;
+   }
+
+
   char* newToken = strtok(input, REQUEST_DELIM);
 
 
@@ -305,13 +312,6 @@ request_t ingestRequest(char* input, cmd_args_t config) {
     tokenCount++;
     newToken = strtok(NULL, REQUEST_DELIM);
   }
-
-  // don't allow requests with HTTP/xx at the end
-  if (spaces != REQUIRED_TOKENS) {
-    potentialRequest.statusCode = NULL;
-    potentialRequest.validRequest = 0;
-  }
-
 
   return potentialRequest;
 }
