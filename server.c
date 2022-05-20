@@ -242,7 +242,7 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
   // count spaces for token count
   int i = 0, spaces = 0;
-  while(input[i]!='\0'){
+  while(input[i] != '\0'){
      if (input[i] == ' ') {
        spaces++;
      }
@@ -408,6 +408,7 @@ void* serviceRequest(void* configIn) {
   request_t newRequest = ingestRequest(buffer, config);
 
   if (newRequest.validRequest == 0 && newRequest.statusCode != STATUS_CLIENT_ERROR) {
+    close(newfd);
     // request failed, but not due to a 404 error
     return NULL;
   }
