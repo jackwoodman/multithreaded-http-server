@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <ctype.h>
+#include <limits.h>
 
 
 #define STATUS_SUCCESS 200
@@ -23,13 +24,12 @@
 
 // file constants
 #define TYPE_DELIM '.'
-#define PARENT_COMMAND ".."
+#define ESCAPE_COMMAND "/../"
 
 // size constants
 #define ARGUMENT_COUNT 4
 #define METHOD_SIZE 4
-#define SEND_BUFFER 4096
-#define READ_BUFFER 1024
+#define READ_BUFFER 2048
 #define ALLOWED_CONNECTIONS 10
 
 
@@ -79,8 +79,6 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
 
   // create socket
   memset(&hints, 0, sizeof hints);
-
-
 
   // assign based on port number
   if (protocolNumber == 4) {
@@ -141,7 +139,7 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
     return bindStatus;
   }
 
-
+  // start listening on decided on file descriptor
   listen(listenfd, ALLOWED_CONNECTIONS);
   printf("- Listening on socket at file description %d\n", listenfd);
 
@@ -155,17 +153,16 @@ void recompileConfig(cmd_args_t* newConfig, cmd_args_t inputConfig, int fD) {
   // with the fileDescriptor for that thread
 
   newConfig->protocolNumber = inputConfig.protocolNumber;
+
+  // malloc space for strings for this thread
   newConfig->portNumber = malloc(strlen(inputConfig.portNumber)+1);
   newConfig->rootPath = malloc(strlen(inputConfig.rootPath)+1);
+
   strcpy(newConfig->portNumber, inputConfig.portNumber);
   strcpy(newConfig->rootPath, inputConfig.rootPath);
 
   // bundle fd
   newConfig->fileDescriptor = fD;
-
-  printf("rt %s\n", newConfig->rootPath);
-
-
 
 }
 
@@ -197,12 +194,23 @@ cmd_args_t ingestCommandLine(char *argv[]) {
 
   }
 
-
   // read path to root
   if (isValidDirectory(argv[3])) {
-    // found directory
-    newConfig.rootPath = malloc(strlen(argv[3]) + 1);
-    strcpy(newConfig.rootPath, argv[3]);
+    // found directory - resolve to 'real path' and store
+
+    char truePath[PATH_MAX];
+    char *pathSuccess = realpath(argv[3], truePath);
+
+    if (pathSuccess) {
+      newConfig.rootPath = malloc(strlen(truePath) + 1);
+      strcpy(newConfig.rootPath, truePath);
+
+    } else {
+      // could not resolve path
+      printf("ERROR: inavlid directory path (realPath specific)\n");
+      newConfig.ignoreConfig = 1;
+    }
+
 
   } else {
     // directory doesn't exist
@@ -210,24 +218,16 @@ cmd_args_t ingestCommandLine(char *argv[]) {
     newConfig.ignoreConfig = 1;
 
   }
-
-
   printf("- (IPv%d, Port %s, Path %s)\n", newConfig.protocolNumber, newConfig.portNumber, newConfig.rootPath);
-
-
-
   return newConfig;
 }
 
 
 char* combinePaths(char* root, char* file) {
   // add file path to end of root location
-  printf("root ih: %s, token ih: %s\n",root, file);
   char* totalPath = malloc(strlen(root) + strlen(file)+1);
   strcpy(totalPath, root);
-  printf("partial: %s\n", totalPath);
   strcat(totalPath, file);
-  printf("final: %s\n", totalPath);
 
   return totalPath;
 
@@ -244,7 +244,6 @@ request_t ingestRequest(char* input, cmd_args_t config) {
   int tokenCount = 0;
 
   while (newToken != NULL) {
-    printf("newToken = %s\n",newToken);
     int tokenLength = strlen(newToken);
 
 
@@ -267,23 +266,18 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
       // check if file exists at root
       char* potentialFile =  malloc(strlen(config.rootPath) + strlen(newToken)+1);
-      printf("root here: %s, token here: %s\n",config.rootPath, newToken);
       potentialFile = combinePaths(config.rootPath, newToken);
 
       if (isValidPath(potentialFile)) {
         // path is valid, store in request
-        printf("h\n");
         potentialRequest.filePath = malloc(strlen(potentialFile)+1);
         strcpy(potentialRequest.filePath, potentialFile);
-        printf("a\n");
-        // get file type, and store
 
+        // get file type, and store
         char* MIMEType = getMIMEType(newToken);
-        printf("MT is %s\n", MIMEType);
-        printf("mallocing %ld\n", strlen(MIMEType));
         potentialRequest.fileType = malloc(strlen(MIMEType)+1);
         strcpy(potentialRequest.fileType, MIMEType);
-        printf("c\n");
+
         // file was found, success!
         potentialRequest.statusCode = STATUS_SUCCESS;
 
@@ -298,16 +292,12 @@ request_t ingestRequest(char* input, cmd_args_t config) {
     } else if (tokenCount == 2) {
       // @ shouldn't need this, but leaving incase we do (e.g. HTTP type)
     }
-
     tokenCount++;
     newToken = strtok(NULL, REQUEST_DELIM);
-
   }
 
   return potentialRequest;
 }
-
-
 
 void executeRequest(request_t request, int newfd) {
   // given a valid request, respond and then send file
@@ -339,7 +329,6 @@ void executeRequest(request_t request, int newfd) {
 
   // close socket
 
-  // finished all sending
 }
 
 
@@ -356,11 +345,9 @@ void fileSend(char* filePath, int newfd) {
   // calculate size of file and allocate buffer space
   fd = fileno(targetFile);
   fstat(fd, &fileStat);
-  printf("pre malloc: \n");
+
   off_t fSize = fileStat.st_size;
   char* fileBuffer = malloc(fSize + 1);
-  printf("- file size = %ld\n",fSize);
-
 
   // read file to buffer
   while ((fileSize = fread(fileBuffer, sizeof(char), fSize, targetFile)) > 0) {
@@ -374,8 +361,6 @@ void fileSend(char* filePath, int newfd) {
 
   // close file
   fclose(targetFile);
-
-  // @ could return write status here if needed, won't do just yet
 }
 
 
@@ -386,18 +371,16 @@ void* serviceRequest(void* configIn) {
 
   // store local copies of main args
   int newfd = config.fileDescriptor;
-  printf("rooooot %s\n", config.rootPath);
   printf("- new thread is alive, running on %d\n", newfd);
   int charsRead;
 
   // create threadlocal buffer to receive data
-  char buffer[SEND_BUFFER];
-  bzero(buffer, SEND_BUFFER);
+  char buffer[READ_BUFFER];
+  bzero(buffer, READ_BUFFER);
 
 
-  printf("- reading to buffer\n");
   int index = 0;
-  while ((charsRead = read(newfd, buffer + index, SEND_BUFFER - 1)) >= 0) {
+  while ((charsRead = read(newfd, buffer + index, READ_BUFFER - 1)) >= 0) {
     if (charsRead > 0) {
       if (strstr(buffer, DBL_CRLF)) {
         // found double CRLF in buffer
@@ -419,8 +402,6 @@ void* serviceRequest(void* configIn) {
     return NULL;
   }
 
-  printf("- valid request! executing\n");
-
   executeRequest(newRequest, newfd);
   close(newfd);
   printf("- Socket closed in serviceRequest()\n");
@@ -428,6 +409,8 @@ void* serviceRequest(void* configIn) {
   // @ here is where thread will close when I get around to it
   return NULL;
 }
+
+
 
 int main(int argc, char *argv[]) {
   //
@@ -444,7 +427,6 @@ int main(int argc, char *argv[]) {
 
 
   // we have enough arguments, ingest them to config struct
-  printf("- Reading command line arguments (%d found)\n", argc);
   cmd_args_t config = ingestCommandLine(argv);
 
   if (config.ignoreConfig == 1) {
@@ -454,7 +436,6 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  printf("- Config succesfully ingested\n");
   pthread_t threadIdentifier;
   // create socket and start listening on it
   int listenfd = initialiseSocket(config.protocolNumber, config.portNumber);
@@ -478,15 +459,11 @@ int main(int argc, char *argv[]) {
     cmd_args_t* threadConfig = malloc(sizeof(cmd_args_t));
     recompileConfig(threadConfig, config, connfd);
 
-    printf("root %s\n", threadConfig->rootPath);
-
-    printf("\n- new connection found: servicing request\n");
     // pass addr to thread to deal with
     printf("\n == SPINNING UP NEW THREAD (%d) ==\n", connfd);
     pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)threadConfig);
     //serviceRequest(connfd, config);
 
-    printf(" = DETATCHING THREAD\n");
     pthread_detach(threadIdentifier);
     // finished servicing new request
 
@@ -556,7 +533,6 @@ int isValidDirectory(char* filePath) {
 
   if (!S_ISDIR(dirStat.st_mode)) {
     // is file, not directory
-    printf("- The path you've given is to a file, not a directory\n");
     return 0;
   }
   return 1;
@@ -572,8 +548,9 @@ int isValidPath(char* filePath) {
     if (fopen(filePath, "r") != NULL) {
       // able to open
 
-      // check for escape attempt
-      if (strstr(filePath, PARENT_COMMAND) == 0) {
+      // check for escape attempt - root path should have been resolved at this
+      // point so safe to just check entire path for the /../ component
+      if (strstr(filePath, ESCAPE_COMMAND) == 0) {
         printf("-- good file\n");
         return 1;
       } else {
