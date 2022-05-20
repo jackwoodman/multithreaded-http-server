@@ -6,8 +6,9 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <ctype.h>
-#include "serverUtils.h"
 #include <limits.h>
+#include "serverUtils.h"
+
 
 // marking constants
 #define MULTITHREADED
@@ -30,7 +31,7 @@
 #define READ_BUFFER 2048
 #define ALLOWED_CONNECTIONS 10
 
-
+// response constants
 #define STATUS_SUCCESS 200
 #define STATUS_CLIENT_ERROR 404
 #define OK_RESPONSE "HTTP/1.0 200 OK\r\n"
@@ -45,7 +46,7 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
   // create socket
   memset(&hints, 0, sizeof hints);
 
-  // assign based on port number
+  // assign based on requested protocol number
   if (protocolNumber == 4) {
     hints.ai_family = AF_INET;
 
@@ -77,6 +78,7 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
                            }
                          }
     }
+
 
   if (s < 0) {
     // could not find IPv6 socket
@@ -171,28 +173,28 @@ cmd_args_t ingestCommandLine(char *argv[]) {
 
 
 request_t ingestRequest(char* input, cmd_args_t config) {
-  // take raw tcp input and convert to a request type for easy access
-  // should do as much error handling in here as possible
-  request_t potentialRequest;
+  // take raw tcp input and convert to a request type
+
   char method[METHOD_SIZE];
   char* newToken = strtok(input, REQUEST_DELIM);
+  request_t potentialRequest;
 
   int tokenCount = 0;
-  potentialRequest.validRequest = 1;
+  potentialRequest.validRequest = 1;  // assume requests are safe to start with
 
   while (newToken != NULL) {
-
+    // iterate over
     int tokenLength = strlen(newToken);
 
 
     if (tokenCount == METHOD_INDEX) {
       // trying to read request method
       if ((tokenLength == METHOD_SIZE-1) && (strcmp(newToken, REQUEST_GET) == 0)) {
-        // matches size of a get request
+        // matches size of a get request, store it
         strcpy(method, newToken);
 
       } else {
-        // too big/small
+        // too big/small - mark request as invalid
         potentialRequest.validRequest = 0;
         return potentialRequest;
       }
@@ -215,12 +217,11 @@ request_t ingestRequest(char* input, cmd_args_t config) {
         potentialRequest.fileType = malloc(strlen(MIMEType)+1);
         strcpy(potentialRequest.fileType, MIMEType);
 
-        // file was found, success!
+        // file was found, success! mark request as 200
         potentialRequest.statusCode = STATUS_SUCCESS;
 
       } else {
-        // file did not exist, return a 404
-        potentialRequest.validRequest = 1;
+        // file did not exist, mark request as a 404 but still valid
         potentialRequest.statusCode = STATUS_CLIENT_ERROR;
         return potentialRequest;
       }
@@ -243,14 +244,16 @@ void executeRequest(request_t request, int newfd) {
     char httpConfirm[] = OK_RESPONSE;
     write(newfd, httpConfirm, strlen(httpConfirm));
 
-    // send file header
+    // build header with confirmation and content type
     char mimeConfirm[] = "Content-Type: ";
     char* mimeHeader = malloc(strlen(mimeConfirm) + strlen(request.fileType) + strlen(DBL_CRLF) + 2);
     strcpy(mimeHeader, mimeConfirm);
     strcat(mimeHeader, request.fileType);
     strcat(mimeHeader, DBL_CRLF);
 
+    // send file header
     write(newfd, mimeHeader, strlen(mimeHeader));
+
     // since successful, send file also
     fileSend(request.filePath, newfd);
 
@@ -260,10 +263,9 @@ void executeRequest(request_t request, int newfd) {
     char httpFailure[] = NF_RESPONSE;
     write(newfd, httpFailure, strlen(httpFailure));
   }
-
-  // close socket
-
 }
+
+
 
 
 void* serviceRequest(void* configIn) {
@@ -281,6 +283,7 @@ void* serviceRequest(void* configIn) {
   int index = 0;
 
   while ((charsRead = read(newfd, buffer + index, READ_BUFFER - 1)) >= 0) {
+    // check chars exist to be read
     if (charsRead > 0) {
       if (strstr(buffer, DBL_CRLF)) {
         // found double CRLF in buffer
@@ -309,9 +312,11 @@ void* serviceRequest(void* configIn) {
 }
 
 
-int main(int argc, char *argv[]) {
-  //
 
+
+
+
+int main(int argc, char *argv[]) {
   int connfd;
 
   printf("\nServer startup, configuring...\n\n");
@@ -342,29 +347,30 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  //
+  // setup was a success, display info to the user
   printf("Server Configured Succesfully: \n");
   printf(" - IPv%d\n - Port %s\n - Root Directory: %s\n", config.protocolNumber, config.portNumber, config.rootPath);
 
   // socket is good to go, begin responding to requests
   while (1) {
-    // bundle up arguments to pass through to threads
-    // accept new connection
+
+    // accept new connection on listening socket (code adapted from lectures)
     struct sockaddr_storage client_addr;
     socklen_t client_addr_size = sizeof client_addr;
     connfd = accept(listenfd, (struct sockaddr*)&client_addr, &client_addr_size);
+
+    // recompile config structure -> make malloc'd copy for this specific thread
+    // to prevent memory issues, and bundle in the 'connfd' value to be passed
+    // through p_thread
     cmd_args_t* threadConfig = malloc(sizeof(cmd_args_t));
     recompileConfig(threadConfig, config, connfd);
 
+    // everything is setup, spin up new thread with passed config file
     printf("\nNew request: creating thread for fd: %d\n", connfd);
-    // pass addr to thread to deal with
     pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)threadConfig);
-    //serviceRequest(connfd, config);
 
+    // detatch thread so we can continue listening -> don't need to wait for join
     pthread_detach(threadIdentifier);
-    // finished servicing new request
-
-
   }
 
   exit(0);
