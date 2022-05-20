@@ -294,10 +294,7 @@ request_t ingestRequest(char* input, cmd_args_t config) {
     newToken = strtok(NULL, REQUEST_DELIM);
   }
 
-  // don't allow requests with HTTP/xx at the end
-  if (tokenCount != REQUIRED_TOKENS) {
-    potentialRequest.validRequest = 0;
-  }
+  
 
   return potentialRequest;
 }
@@ -453,7 +450,7 @@ int main(int argc, char *argv[]) {
     cmd_args_t* threadConfig = malloc(sizeof(cmd_args_t));
     recompileConfig(threadConfig, config, connfd);
 
-    printf("New request: creating thread for fd: %d\n", connfd);
+    printf("\nNew request: creating thread for fd: %d\n", connfd);
     // pass addr to thread to deal with
     pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)threadConfig);
     //serviceRequest(connfd, config);
