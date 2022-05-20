@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <ctype.h>
+#include "serverUtils.h"
 #include <limits.h>
 
 // marking constants
@@ -23,56 +24,18 @@
 #define PORT_INDEX 2
 #define PATH_INDEX 3
 
-// file constants
-#define TYPE_DELIM '.'
-#define ESCAPE_COMMAND "/../"
-
 // size constants
 #define ARGUMENT_COUNT 4
 #define METHOD_SIZE 4
 #define READ_BUFFER 2048
 #define ALLOWED_CONNECTIONS 10
 
-// file/response types (MIME)
-#define MIME_HTML "text/html"
-#define MIME_JPEG "image/jpeg"
-#define MIME_CSS "text/css"
-#define MIME_JAVASCRIPT "text/javascript"
-#define MIME_OTHER "application/octet-stream"
 
 #define STATUS_SUCCESS 200
 #define STATUS_CLIENT_ERROR 404
 #define OK_RESPONSE "HTTP/1.0 200 OK\r\n"
 #define NF_RESPONSE "HTTP/1.0 404 Not Found\r\n\r\n"
 
-
-
-typedef struct request_t request_t;
-struct request_t {
-  int statusCode;
-  int handlerID;
-  char* fileType;
-  char* filePath;
-  int validRequest; // request is finished and can be used
-
-};
-
-
-typedef struct cmd_args_t cmd_args_t;
-struct cmd_args_t {
-  int protocolNumber;
-  char* portNumber;
-  char* rootPath;
-  int fileDescriptor;
-  int ignoreConfig; // bad cmd line input, don't use this config
-
-};
-
-int convertsToNumber(char* inString);
-int isValidPath(char* filePath);
-int isValidDirectory(char* filePath);
-char* getMIMEType(char* filePath);
-void fileSend(char* filePath, int newfd);
 
 int initialiseSocket(int protocolNumber, char* portNumber) {
   // code to setup socket - adapting from code provided in lectures
@@ -148,23 +111,6 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
 
 }
 
-void recompileConfig(cmd_args_t* newConfig, cmd_args_t inputConfig, int fD) {
-  // take input config, make individual copy for each thread bundled
-  // with the fileDescriptor for that thread
-
-  newConfig->protocolNumber = inputConfig.protocolNumber;
-
-  // malloc space for strings for this thread
-  newConfig->portNumber = malloc(strlen(inputConfig.portNumber)+1);
-  newConfig->rootPath = malloc(strlen(inputConfig.rootPath)+1);
-
-  strcpy(newConfig->portNumber, inputConfig.portNumber);
-  strcpy(newConfig->rootPath, inputConfig.rootPath);
-
-  // bundle fd
-  newConfig->fileDescriptor = fD;
-
-}
 
 
 cmd_args_t ingestCommandLine(char *argv[]) {
@@ -223,15 +169,6 @@ cmd_args_t ingestCommandLine(char *argv[]) {
 }
 
 
-char* combinePaths(char* root, char* file) {
-  // add file path to end of root location
-  char* totalPath = malloc(strlen(root) + strlen(file)+1);
-  strcpy(totalPath, root);
-  strcat(totalPath, file);
-
-  return totalPath;
-
-}
 
 request_t ingestRequest(char* input, cmd_args_t config) {
   // take raw tcp input and convert to a request type for easy access
@@ -326,35 +263,6 @@ void executeRequest(request_t request, int newfd) {
 
   // close socket
 
-}
-
-
-void fileSend(char* filePath, int newfd) {
-  // code to send file if found, through socket
-  int fileSize;
-  struct stat fileStat;
-
-  // get file
-  FILE* targetFile = fopen(filePath, "r");
-  int totalSent = 0;
-  int fd;
-
-  // calculate size of file and allocate buffer space
-  fd = fileno(targetFile);
-  fstat(fd, &fileStat);
-
-  off_t fSize = fileStat.st_size;
-  char* fileBuffer = malloc(fSize + 1);
-
-  // read file to buffer
-  while ((fileSize = fread(fileBuffer, sizeof(char), fSize, targetFile)) > 0) {
-    // write read amount
-    write(newfd, fileBuffer, fileSize);
-    totalSent += fileSize;
-  }
-
-  // close file
-  fclose(targetFile);
 }
 
 
@@ -460,90 +368,4 @@ int main(int argc, char *argv[]) {
   }
 
   exit(0);
-}
-
-
-char* getMIMEType(char* filePath) {
-  // return the MIME type given the filepath
-  char* fileType;
-
-  char* fullStop = strrchr(filePath, TYPE_DELIM);
-  // get pointer to full stop delim in path
-  if (fullStop == NULL) {
-    // no file extension - but if we're here,it must be a valid file
-    fullStop = filePath;
-  } else {
-
-    // point now to the filetype itself
-    fullStop = fullStop + 1;
-  }
-
-  // check filetype exists
-
-  // ugly if statement to return MIME type
-  if (strcmp("html", fullStop) == 0) {
-    fileType = MIME_HTML;
-  } else if (strcmp("jpg", fullStop) == 0) {
-    fileType = MIME_JPEG;
-  } else if (strcmp("css", fullStop) == 0) {
-    fileType = MIME_CSS;
-  } else if (strcmp("js", fullStop) == 0) {
-    fileType = MIME_JAVASCRIPT;
-  } else {
-    fileType = MIME_OTHER;
-  }
-
-  return fileType;
-}
-
-
-int convertsToNumber(char* inString) {
-  // checks if this string contains an integer once converted
-  for (int i=0; i<strlen(inString); i++) {
-      if (!isdigit(inString[i])) {
-        // found something that isn't a digit
-        return 0;
-      }
-
-  }
-
-  // no non-digits found
-  return 1;
-}
-
-int isValidDirectory(char* filePath) {
-  // helper func to check directory exists
-  struct stat dirStat;
-  if (stat(filePath, &dirStat) != 0) {
-    // some error has occured in creating the stat, so not dir
-    return 0;
-  }
-
-
-  if (!S_ISDIR(dirStat.st_mode)) {
-    // is file, not directory
-    return 0;
-  }
-  return 1;
-}
-
-
-int isValidPath(char* filePath) {
-  // helper func to check filepath exists and type is correct
-  if (strlen(filePath) > 0) {
-    // path isn't empty
-    if (fopen(filePath, "r") != NULL) {
-      // able to open
-
-      // check for escape attempt - root path should have been resolved at this
-      // point so safe to just check entire path for the /../ component
-      if (strstr(filePath, ESCAPE_COMMAND) == 0) {
-        return 1;
-      }
-    }
-  }
-
-  // unable to open / illegal instruction
-  return 0;
-
 }
