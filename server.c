@@ -29,7 +29,6 @@
 
 // size constants
 #define ARGUMENT_COUNT 4
-#define REQUIRED_TOKENS 2
 #define METHOD_SIZE 4
 #define READ_BUFFER 2048
 #define ALLOWED_CONNECTIONS 10
@@ -239,26 +238,7 @@ request_t ingestRequest(char* input, cmd_args_t config) {
   // should do as much error handling in here as possible
   request_t potentialRequest;
   char method[METHOD_SIZE];
-
-  // count spaces for token count
-  int i = 0, spaces = 0;
-  while(input[i] != '\0'){
-     if (input[i] == ' ') {
-       spaces++;
-     }
-     i++;
-   }
-
-   // don't allow requests with HTTP/xx at the end
-   if (spaces != REQUIRED_TOKENS) {
-     potentialRequest.validRequest = 0;
-     return potentialRequest;
-   }
-
-
   char* newToken = strtok(input, REQUEST_DELIM);
-
-
 
   int tokenCount = 0;
   potentialRequest.validRequest = 1;
@@ -408,8 +388,8 @@ void* serviceRequest(void* configIn) {
   request_t newRequest = ingestRequest(buffer, config);
 
   if (newRequest.validRequest == 0 && newRequest.statusCode != STATUS_CLIENT_ERROR) {
-    close(newfd);
     // request failed, but not due to a 404 error
+    close(newfd);
     return NULL;
   }
 
