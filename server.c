@@ -8,19 +8,20 @@
 #include <ctype.h>
 #include <limits.h>
 
-
-#define STATUS_SUCCESS 200
-#define STATUS_CLIENT_ERROR 404
-#define SYSTEM_ERROR -1
-#define TEST_ROOT "/www"
-#define REQUEST_DELIM " "
-#define REQUEST_GET "GET"
-#define CRLF "\r\n"
-#define DBL_CRLF "\r\n\r\n"
-
 // marking constants
 #define MULTITHREADED
 #define IMPLEMENTS_IPV6
+
+#define REQUEST_DELIM " "
+#define REQUEST_GET "GET"
+#define DBL_CRLF "\r\n\r\n"
+
+// index constants
+#define METHOD_INDEX 0
+#define HTTP_PATH_INDEX 1
+#define PROTOCOL_INDEX 1
+#define PORT_INDEX 2
+#define PATH_INDEX 3
 
 // file constants
 #define TYPE_DELIM '.'
@@ -28,18 +29,22 @@
 
 // size constants
 #define ARGUMENT_COUNT 4
+#define REQUIRED_TOKENS 3
 #define METHOD_SIZE 4
 #define READ_BUFFER 2048
 #define ALLOWED_CONNECTIONS 10
 
-
-// file types (MIME)
+// file/response types (MIME)
 #define MIME_HTML "text/html"
 #define MIME_JPEG "image/jpeg"
 #define MIME_CSS "text/css"
 #define MIME_JAVASCRIPT "text/javascript"
 #define MIME_OTHER "application/octet-stream"
 
+#define STATUS_SUCCESS 200
+#define STATUS_CLIENT_ERROR 404
+#define OK_RESPONSE "HTTP/1.0 200 OK\r\n"
+#define NF_RESPONSE "HTTP/1.0 404 Not Found\r\n\r\n"
 
 
 
@@ -75,8 +80,6 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
   int listenfd, re, s;
   struct addrinfo hints, *res, *p;
 
-  printf("- Initialising Socket\n");
-
   // create socket
   memset(&hints, 0, sizeof hints);
 
@@ -94,7 +97,7 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
 
   if (s != 0) {
     // get addr info failed to allocate properly
-    printf("failed allocation\n");
+    printf("ERROR: failed socket allocation\n");
     exit(EXIT_FAILURE);
   }
 
@@ -115,7 +118,7 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
 
   if (s < 0) {
     // could not find IPv6 socket
-    printf("could not find socket on IPv6\n");
+    printf("ERROR: could not find socket on IPv6\n");
     exit(EXIT_FAILURE);
   }
 
@@ -141,8 +144,6 @@ int initialiseSocket(int protocolNumber, char* portNumber) {
 
   // start listening on decided on file descriptor
   listen(listenfd, ALLOWED_CONNECTIONS);
-  printf("- Listening on socket at file description %d\n", listenfd);
-
 
   return listenfd;
 
@@ -172,34 +173,34 @@ cmd_args_t ingestCommandLine(char *argv[]) {
   cmd_args_t newConfig;
 
   // (IPv)4 or (IPv)6
-  if (atoi(argv[1]) == 4 || atoi(argv[1]) == 6) {
-    newConfig.protocolNumber = atoi(argv[1]);
+  if (atoi(argv[PROTOCOL_INDEX]) == 4 || atoi(argv[PROTOCOL_INDEX]) == 6) {
+    newConfig.protocolNumber = atoi(argv[PROTOCOL_INDEX]);
   } else {
     // incorrect protocol number
     newConfig.ignoreConfig = 1;
-    printf("ERROR: inavlid protocol number\n");
+    printf("ERROR: invalid protocol number (must be 4 or 6)\n");
   }
 
 
   // port number (as a string)
-  if (atoi(argv[2]) >= 0 && convertsToNumber(argv[2])) {
+  if (atoi(argv[PORT_INDEX]) >= 0 && convertsToNumber(argv[PORT_INDEX])) {
     // port is number within range
-    newConfig.portNumber = malloc(strlen(argv[2]) + 1);
-    strcpy(newConfig.portNumber, argv[2]);
+    newConfig.portNumber = malloc(strlen(argv[PORT_INDEX]) + 1);
+    strcpy(newConfig.portNumber, argv[PORT_INDEX]);
 
   } else {
     // port number not acceptable
-    printf("ERROR: inavlid port number\n");
+    printf("ERROR: invalid port number\n");
     newConfig.ignoreConfig = 1;
 
   }
 
   // read path to root
-  if (isValidDirectory(argv[3])) {
+  if (isValidDirectory(argv[PATH_INDEX])) {
     // found directory - resolve to 'real path' and store
 
     char truePath[PATH_MAX];
-    char *pathSuccess = realpath(argv[3], truePath);
+    char *pathSuccess = realpath(argv[PATH_INDEX], truePath);
 
     if (pathSuccess) {
       newConfig.rootPath = malloc(strlen(truePath) + 1);
@@ -207,18 +208,18 @@ cmd_args_t ingestCommandLine(char *argv[]) {
 
     } else {
       // could not resolve path
-      printf("ERROR: inavlid directory path (realPath specific)\n");
+      printf("ERROR: invalid directory path (contains '..')'\n");
       newConfig.ignoreConfig = 1;
     }
 
 
   } else {
     // directory doesn't exist
-    printf("ERROR: inavlid directory path\n");
+    printf("ERROR: inavlid directory path (doesn't exist)\n");
     newConfig.ignoreConfig = 1;
 
   }
-  printf("- (IPv%d, Port %s, Path %s)\n", newConfig.protocolNumber, newConfig.portNumber, newConfig.rootPath);
+
   return newConfig;
 }
 
@@ -236,18 +237,19 @@ char* combinePaths(char* root, char* file) {
 request_t ingestRequest(char* input, cmd_args_t config) {
   // take raw tcp input and convert to a request type for easy access
   // should do as much error handling in here as possible
-  printf("- Ingesting request\n");
   request_t potentialRequest;
   char method[METHOD_SIZE];
   char* newToken = strtok(input, REQUEST_DELIM);
 
   int tokenCount = 0;
+  potentialRequest.validRequest = 1;
 
   while (newToken != NULL) {
+
     int tokenLength = strlen(newToken);
 
 
-    if (tokenCount == 0) {
+    if (tokenCount == METHOD_INDEX) {
       // trying to read request method
       if ((tokenLength == METHOD_SIZE-1) && (strcmp(newToken, REQUEST_GET) == 0)) {
         // matches size of a get request
@@ -255,13 +257,12 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
       } else {
         // too big/small
-        printf("- Invalid request (too big/small)\n");
         potentialRequest.validRequest = 0;
         return potentialRequest;
       }
 
 
-    } else if (tokenCount == 1) {
+    } else if (tokenCount == HTTP_PATH_INDEX) {
       // tring to read filepath now
 
       // check if file exists at root
@@ -283,17 +284,19 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 
       } else {
         // file did not exist, return a 404
-        printf("- Invalid request (404)\n");
         potentialRequest.validRequest = 1;
         potentialRequest.statusCode = STATUS_CLIENT_ERROR;
         return potentialRequest;
       }
 
-    } else if (tokenCount == 2) {
-      // @ shouldn't need this, but leaving incase we do (e.g. HTTP type)
     }
     tokenCount++;
     newToken = strtok(NULL, REQUEST_DELIM);
+  }
+
+  // don't allow requests with HTTP/xx at the end
+  if (tokenCount != REQUIRED_TOKENS) {
+    potentialRequest.validRequest = 0;
   }
 
   return potentialRequest;
@@ -302,11 +305,11 @@ request_t ingestRequest(char* input, cmd_args_t config) {
 void executeRequest(request_t request, int newfd) {
   // given a valid request, respond and then send file
 
-  printf("- Executing request\n");
   // respond to request
   if (request.statusCode == STATUS_SUCCESS) {
     // send confirmation
-    char httpConfirm[] = "HTTP/1.0 200 OK\r\n";
+    printf("- result: 200 OK\n");
+    char httpConfirm[] = OK_RESPONSE;
     write(newfd, httpConfirm, strlen(httpConfirm));
 
     // send file header
@@ -322,8 +325,8 @@ void executeRequest(request_t request, int newfd) {
 
   } else if (request.statusCode == STATUS_CLIENT_ERROR) {
     // send failure message
-    printf("- sending failure\n");
-    char httpFailure[] = "HTTP/1.0 404 Not Found\r\n\r\n";
+    printf("- result: 404, not found\n");
+    char httpFailure[] = NF_RESPONSE;
     write(newfd, httpFailure, strlen(httpFailure));
   }
 
@@ -356,9 +359,6 @@ void fileSend(char* filePath, int newfd) {
     totalSent += fileSize;
   }
 
-  printf("- File sent successfully\n");
-  printf("- sent %d\n", totalSent);
-
   // close file
   fclose(targetFile);
 }
@@ -368,18 +368,16 @@ void* serviceRequest(void* configIn) {
   // worker to handle new incomming - can be used standalone or multithreaded
 
   cmd_args_t config = *((cmd_args_t*)configIn);
-
   // store local copies of main args
   int newfd = config.fileDescriptor;
-  printf("- new thread is alive, running on %d\n", newfd);
   int charsRead;
 
   // create threadlocal buffer to receive data
   char buffer[READ_BUFFER];
   bzero(buffer, READ_BUFFER);
 
-
   int index = 0;
+
   while ((charsRead = read(newfd, buffer + index, READ_BUFFER - 1)) >= 0) {
     if (charsRead > 0) {
       if (strstr(buffer, DBL_CRLF)) {
@@ -391,25 +389,21 @@ void* serviceRequest(void* configIn) {
     index += charsRead;
   }
 
-  printf("- finished reading\n");
 
   // received get command, pass to ingest
   request_t newRequest = ingestRequest(buffer, config);
 
   if (newRequest.validRequest == 0 && newRequest.statusCode != STATUS_CLIENT_ERROR) {
     // request failed, but not due to a 404 error
-    printf("- invalid request, dropping\n");
     return NULL;
   }
 
   executeRequest(newRequest, newfd);
   close(newfd);
-  printf("- Socket closed in serviceRequest()\n");
+
   // this request has been serviced.
-  // @ here is where thread will close when I get around to it
   return NULL;
 }
-
 
 
 int main(int argc, char *argv[]) {
@@ -417,7 +411,7 @@ int main(int argc, char *argv[]) {
 
   int connfd;
 
-  printf("- Server Startup: entered main\n");
+  printf("\nServer startup, configuring...\n\n");
 
   // read cmdline input to get addrinfo
   if (argc != ARGUMENT_COUNT) {
@@ -432,7 +426,6 @@ int main(int argc, char *argv[]) {
   if (config.ignoreConfig == 1) {
     // something in the command line input was malformed
     // unable to proceed, so terminate server
-    printf(" - bad command line input\n");
     exit(EXIT_FAILURE);
   }
 
@@ -442,15 +435,16 @@ int main(int argc, char *argv[]) {
 
   if (listenfd == -1) {
     // could not intialiseSocket, therefore can't run server
-    printf("- Socket failure\n");
+    printf("ERROR: Socket initialisation failure\n");
     exit(EXIT_FAILURE);
   }
 
-  printf("- Socket created successfully\n");
+  //
+  printf("Server Configured Succesfully: \n");
+  printf(" - IPv%d\n - Port %s\n - Root Directory: %s\n", config.protocolNumber, config.portNumber, config.rootPath);
 
   // socket is good to go, begin responding to requests
   while (1) {
-    printf("- Accepting new connection...\n");
     // bundle up arguments to pass through to threads
     // accept new connection
     struct sockaddr_storage client_addr;
@@ -459,8 +453,8 @@ int main(int argc, char *argv[]) {
     cmd_args_t* threadConfig = malloc(sizeof(cmd_args_t));
     recompileConfig(threadConfig, config, connfd);
 
+    printf("New request: creating thread for fd: %d\n", connfd);
     // pass addr to thread to deal with
-    printf("\n == SPINNING UP NEW THREAD (%d) ==\n", connfd);
     pthread_create(&threadIdentifier, NULL, serviceRequest, (void*)threadConfig);
     //serviceRequest(connfd, config);
 
@@ -503,7 +497,7 @@ char* getMIMEType(char* filePath) {
   } else {
     fileType = MIME_OTHER;
   }
-  printf("type: %s\n",fileType);
+
   return fileType;
 }
 
@@ -541,8 +535,6 @@ int isValidDirectory(char* filePath) {
 
 int isValidPath(char* filePath) {
   // helper func to check filepath exists and type is correct
-  printf("-- trying to open file at: \n");
-  printf("-- %s\n",filePath);
   if (strlen(filePath) > 0) {
     // path isn't empty
     if (fopen(filePath, "r") != NULL) {
@@ -551,16 +543,9 @@ int isValidPath(char* filePath) {
       // check for escape attempt - root path should have been resolved at this
       // point so safe to just check entire path for the /../ component
       if (strstr(filePath, ESCAPE_COMMAND) == 0) {
-        printf("-- good file\n");
         return 1;
-      } else {
-        printf("-- escape attempt found\n");
       }
-    } else {
-      printf("-- unable to open\n");
     }
-  } else {
-    printf("-- path is empty\n");
   }
 
   // unable to open / illegal instruction
